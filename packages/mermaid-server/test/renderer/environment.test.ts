@@ -83,6 +83,30 @@ describe('withEnvironment', () => {
     });
   });
 
+  it('getBBox handles nested tspan structure without double-counting', async () => {
+    await withEnvironment(() => {
+      const svg = global.document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      const g = global.document.createElementNS('http://www.w3.org/2000/svg', 'g');
+
+      // Mirrors mermaid's actual output: <text><tspan><tspan>label</tspan></tspan></text>
+      for (const label of ['Node A', 'Node B']) {
+        const text = global.document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        const outerTspan = global.document.createElementNS('http://www.w3.org/2000/svg', 'tspan');
+        const innerTspan = global.document.createElementNS('http://www.w3.org/2000/svg', 'tspan');
+        innerTspan.textContent = label;
+        outerTspan.appendChild(innerTspan);
+        text.appendChild(outerTspan);
+        g.appendChild(text);
+      }
+
+      svg.appendChild(g);
+      global.document.body.appendChild(svg);
+      const bbox = (g as Record<string, unknown>).getBBox() as { width: number; height: number };
+      // 2 text elements × (24 line height + 16 padding) = 80, not double-counted
+      expect(bbox.height).toBe(80);
+    });
+  });
+
   it('getBBox returns fallback for elements with no text', async () => {
     await withEnvironment(() => {
       const svg = global.document.createElementNS('http://www.w3.org/2000/svg', 'svg');
