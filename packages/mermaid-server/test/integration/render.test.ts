@@ -78,4 +78,68 @@ describe('POST /api/v1/render', () => {
     });
     expect(res.statusCode).toBe(200);
   });
+
+  it('flowchart foreignObjects have non-zero dimensions', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/render',
+      payload: {
+        diagram: 'flowchart LR\n    A[Hello World] --> B[Goodbye World]',
+        outputFormat: 'svg-string',
+      },
+    });
+    expect(res.statusCode).toBe(200);
+    const { svg } = JSON.parse(res.payload);
+
+    // No zero-dimension foreignObjects
+    expect(svg).not.toMatch(/foreignObject[^>]*width="0"/);
+    expect(svg).not.toMatch(/foreignObject[^>]*height="0"/);
+
+    // ViewBox should have positive dimensions
+    const vbMatch = svg.match(/viewBox="([^"]+)"/);
+    expect(vbMatch).toBeTruthy();
+    const parts = vbMatch[1].split(' ').map(Number);
+    const [, , width, height] = parts;
+    expect(width).toBeGreaterThan(0);
+    expect(height).toBeGreaterThan(0);
+  });
+
+  it('gantt chart has non-zero viewBox width', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/render',
+      payload: {
+        diagram:
+          'gantt\n    title Test\n    dateFormat YYYY-MM-DD\n    section Tasks\n    A :a1, 2024-01-01, 7d',
+        outputFormat: 'svg-string',
+      },
+    });
+    expect(res.statusCode).toBe(200);
+    const { svg } = JSON.parse(res.payload);
+
+    const vbMatch = svg.match(/viewBox="([^"]+)"/);
+    expect(vbMatch).toBeTruthy();
+    const parts = vbMatch[1].split(' ').map(Number);
+    const [, , width] = parts;
+    expect(width).toBeGreaterThan(0);
+  });
+
+  it('user config can override htmlLabels default', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/render',
+      payload: {
+        diagram: 'flowchart LR\n    A[Test] --> B[Node]',
+        config: { htmlLabels: true },
+        outputFormat: 'svg-string',
+      },
+    });
+    expect(res.statusCode).toBe(200);
+    const { svg } = JSON.parse(res.payload);
+    // If mermaid honors htmlLabels: true, foreignObject should appear
+    // (With our patch, it should have non-zero dimensions)
+    if (svg.includes('foreignObject')) {
+      expect(svg).not.toMatch(/foreignObject[^>]*width="0"/);
+    }
+  });
 });

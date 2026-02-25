@@ -39,7 +39,7 @@ describe('Diagram corpus — render all types', () => {
   });
 
   for (const name of DIAGRAM_FILES) {
-    it(`renders ${name} diagram`, async () => {
+    it(`renders ${name} diagram with valid geometry`, async () => {
       const diagram = await readFile(join(FIXTURES_DIR, `${name}.mmd`), 'utf-8');
 
       // Parse should succeed
@@ -59,6 +59,20 @@ describe('Diagram corpus — render all types', () => {
       expect(renderRes.statusCode).toBe(200);
       const body = JSON.parse(renderRes.payload);
       expect(body.svg).toContain('<svg');
+
+      // No broken foreignObjects
+      if (body.svg.includes('foreignObject')) {
+        expect(body.svg).not.toMatch(/foreignObject[^>]*width="0"/);
+        expect(body.svg).not.toMatch(/foreignObject[^>]*height="0"/);
+      }
+
+      // ViewBox has positive dimensions
+      const vbMatch = body.svg.match(/viewBox="([^"]+)"/);
+      if (vbMatch) {
+        const parts = vbMatch[1].split(' ').map(Number);
+        expect(parts[2]).toBeGreaterThan(0); // width
+        expect(parts[3]).toBeGreaterThan(0); // height
+      }
     });
   }
 });

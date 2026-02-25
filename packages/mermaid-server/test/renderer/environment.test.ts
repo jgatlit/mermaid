@@ -48,4 +48,41 @@ describe('withEnvironment', () => {
       expect(bbox.width).toBeGreaterThan(0);
     });
   });
+
+  it('patches getBoundingClientRect on HTML elements', async () => {
+    await withEnvironment(() => {
+      const div = global.document.createElement('div');
+      div.textContent = 'Hello World';
+      global.document.body.appendChild(div);
+      const rect = div.getBoundingClientRect();
+      expect(rect.width).toBeGreaterThan(0);
+      expect(rect.height).toBeGreaterThan(0);
+      // "Hello World" = 11 chars × 8px = 88px
+      expect(rect.width).toBe(88);
+      expect(rect.height).toBe(24);
+    });
+  });
+
+  it('getBoundingClientRect handles multiline text', async () => {
+    await withEnvironment(() => {
+      const div = global.document.createElement('div');
+      div.textContent = 'Line 1\nLine 2\nLine 3';
+      global.document.body.appendChild(div);
+      const rect = div.getBoundingClientRect();
+      expect(rect.height).toBe(72); // 3 lines × 24px
+      // Width should be max line length: "Line 1" = 6 chars × 8px = 48px
+      expect(rect.width).toBe(48);
+    });
+  });
+
+  it('getBoundingClientRect returns minimum dimensions for empty elements', async () => {
+    await withEnvironment(() => {
+      const div = global.document.createElement('div');
+      div.textContent = '';
+      global.document.body.appendChild(div);
+      const rect = div.getBoundingClientRect();
+      expect(rect.width).toBe(10); // Minimum width
+      expect(rect.height).toBe(24); // Single line height
+    });
+  });
 });
