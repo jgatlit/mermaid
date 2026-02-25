@@ -51,5 +51,8 @@ demos/dev/**
 tsx-0/**
 vite.config.ts.timestamp-*
 
+# mermaid-server runtime data (FileStore job artifacts)
+data/
+
 # autogenereated by langium-cli
 generated/

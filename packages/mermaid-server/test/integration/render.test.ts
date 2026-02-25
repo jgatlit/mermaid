@@ -142,4 +142,40 @@ describe('POST /api/v1/render', () => {
       expect(svg).not.toMatch(/foreignObject[^>]*\bwidth="0"/);
     }
   });
+
+  it('flowchart viewBox scales with diagram complexity', async () => {
+    // Simple 2-node diagram
+    const simple = await app.inject({
+      method: 'POST',
+      url: '/api/v1/render',
+      payload: { diagram: 'flowchart LR\n    A[Hi] --> B[Bye]', outputFormat: 'svg-string' },
+    });
+    expect(simple.statusCode).toBe(200);
+    const simpleBody = JSON.parse(simple.payload);
+    const simpleVB = simpleBody.svg.match(/viewBox="([^"]+)"/)[1];
+    const [, , simpleWidth, simpleHeight] = simpleVB.split(' ').map(Number);
+
+    // Complex 6-node diagram with longer labels
+    const complex = await app.inject({
+      method: 'POST',
+      url: '/api/v1/render',
+      payload: {
+        diagram:
+          'flowchart LR\n    A[Node One with long label] --> B[Node Two]\n    B --> C[Node Three]\n    D[Node Four] --> E[Node Five]\n    E --> F[Node Six with another long label]',
+        outputFormat: 'svg-string',
+      },
+    });
+    expect(complex.statusCode).toBe(200);
+    const complexBody = JSON.parse(complex.payload);
+    const complexVB = complexBody.svg.match(/viewBox="([^"]+)"/)[1];
+    const [, , complexWidth, complexHeight] = complexVB.split(' ').map(Number);
+
+    // Complex diagram should have larger viewBox than simple
+    expect(complexWidth).toBeGreaterThan(simpleWidth);
+    expect(complexHeight).toBeGreaterThan(simpleHeight);
+
+    // Sanity check: neither should be the constant 116×116
+    expect(simpleWidth).not.toBe(116);
+    expect(complexWidth).not.toBe(116);
+  });
 });
