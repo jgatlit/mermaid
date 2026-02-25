@@ -62,8 +62,8 @@ describe('Diagram corpus — render all types', () => {
 
       // No broken foreignObjects
       if (body.svg.includes('foreignObject')) {
-        expect(body.svg).not.toMatch(/foreignObject[^>]*width="0"/);
-        expect(body.svg).not.toMatch(/foreignObject[^>]*height="0"/);
+        expect(body.svg).not.toMatch(/foreignObject[^>]*\bwidth="0"/);
+        expect(body.svg).not.toMatch(/foreignObject[^>]*\bheight="0"/);
       }
 
       // ViewBox has positive dimensions

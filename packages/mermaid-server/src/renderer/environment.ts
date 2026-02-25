@@ -29,6 +29,9 @@ export async function withEnvironment<T>(fn: () => Promise<T>): Promise<T> {
           return text.length * 8;
         });
         setProperty(window.Element.prototype, 'getBoundingClientRect', function (this: Element) {
+          // textContent aggregates all descendant text. Correct for leaf/label
+          // elements (mermaid's primary call sites in util.ts and createText.ts),
+          // but may overestimate for containers with many children.
           const text = this.textContent ?? '';
           const lines = text.split('\n');
           const maxLineLen = lines.reduce((max, line) => Math.max(max, line.length), 0);

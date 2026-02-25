@@ -92,8 +92,8 @@ describe('POST /api/v1/render', () => {
     const { svg } = JSON.parse(res.payload);
 
     // No zero-dimension foreignObjects
-    expect(svg).not.toMatch(/foreignObject[^>]*width="0"/);
-    expect(svg).not.toMatch(/foreignObject[^>]*height="0"/);
+    expect(svg).not.toMatch(/foreignObject[^>]*\bwidth="0"/);
+    expect(svg).not.toMatch(/foreignObject[^>]*\bheight="0"/);
 
     // ViewBox should have positive dimensions
     const vbMatch = svg.match(/viewBox="([^"]+)"/);
@@ -139,7 +139,7 @@ describe('POST /api/v1/render', () => {
     // If mermaid honors htmlLabels: true, foreignObject should appear
     // (With our patch, it should have non-zero dimensions)
     if (svg.includes('foreignObject')) {
-      expect(svg).not.toMatch(/foreignObject[^>]*width="0"/);
+      expect(svg).not.toMatch(/foreignObject[^>]*\bwidth="0"/);
     }
   });
 });
