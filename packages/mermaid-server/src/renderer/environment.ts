@@ -28,6 +28,31 @@ export async function withEnvironment<T>(fn: () => Promise<T>): Promise<T> {
           const text = this.textContent ?? '';
           return text.length * 8;
         });
+        setProperty(window.Element.prototype, 'getBoundingClientRect', function (this: Element) {
+          // textContent aggregates all descendant text. Correct for leaf/label
+          // elements (mermaid's primary call sites in util.ts and createText.ts),
+          // but may overestimate for containers with many children.
+          const text = this.textContent ?? '';
+          const lines = text.split('\n');
+          const maxLineLen = lines.reduce((max, line) => Math.max(max, line.length), 0);
+          const LINE_HEIGHT = 24;
+          const CHAR_WIDTH = 8; // matches getComputedTextLength heuristic
+          const width = Math.max(maxLineLen * CHAR_WIDTH, 10);
+          const height = Math.max(lines.length * LINE_HEIGHT, LINE_HEIGHT);
+          return {
+            x: 0,
+            y: 0,
+            width,
+            height,
+            top: 0,
+            left: 0,
+            right: width,
+            bottom: height,
+            toJSON() {
+              return this;
+            },
+          };
+        });
       },
     });
 

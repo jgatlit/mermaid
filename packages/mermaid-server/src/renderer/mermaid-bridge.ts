@@ -46,6 +46,8 @@ export class MermaidBridge {
       startOnLoad: false,
       securityLevel: 'strict',
       logLevel: 'error',
+      htmlLabels: false, // Prefer SVG <text> labels in server context
+      gantt: { useWidth: 960 }, // Default viewport width for server rendering
       theme: config?.theme ?? 'default',
       ...config,
     };
