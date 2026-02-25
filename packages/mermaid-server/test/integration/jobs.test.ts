@@ -80,7 +80,15 @@ describe('Job endpoints', () => {
   it('returns 404 for nonexistent job', async () => {
     const res = await app.inject({
       method: 'GET',
-      url: '/api/v1/jobs/nonexistent-id',
+      url: '/api/v1/jobs/00000000-0000-0000-0000-000000000000',
+    });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it('rejects path traversal in job ID', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/v1/jobs/../../etc/passwd',
     });
     expect(res.statusCode).toBe(404);
   });
