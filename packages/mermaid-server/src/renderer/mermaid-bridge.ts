@@ -23,6 +23,16 @@ interface MermaidModule {
   };
 }
 
+const BLOCKED_CONFIG_KEYS = ['securityLevel', 'secure', 'maxTextSize', 'logLevel', 'startOnLoad'];
+
+function sanitizeConfig(config: MermaidConfig): MermaidConfig {
+  const sanitized = { ...config };
+  for (const key of BLOCKED_CONFIG_KEYS) {
+    delete (sanitized as Record<string, unknown>)[key];
+  }
+  return sanitized;
+}
+
 let renderCounter = 0;
 
 export class MermaidBridge {
@@ -77,7 +87,7 @@ export class MermaidBridge {
         const mermaid = this.getMermaid();
         try {
           if (config) {
-            mermaid.initialize({ ...this.defaultConfig, ...config });
+            mermaid.initialize({ ...this.defaultConfig, ...sanitizeConfig(config) });
           }
           const result = await mermaid.parse(text);
           return result;
@@ -98,7 +108,7 @@ export class MermaidBridge {
         const id = `mermaid-server-${++renderCounter}`;
         try {
           if (config) {
-            mermaid.initialize({ ...this.defaultConfig, ...config });
+            mermaid.initialize({ ...this.defaultConfig, ...sanitizeConfig(config) });
           }
           const result = await mermaid.render(id, text);
           return {

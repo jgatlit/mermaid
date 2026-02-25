@@ -5,6 +5,14 @@ import { randomUUID } from 'node:crypto';
 const STAGES = ['input', 'staged', 'output', 'archive'] as const;
 type Stage = (typeof STAGES)[number];
 
+const UUID_RE = /^[\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12}$/i;
+
+function validateJobId(jobId: string): void {
+  if (!UUID_RE.test(jobId)) {
+    throw new Error(`Invalid job ID format: ${jobId}`);
+  }
+}
+
 interface JobMetadata {
   createdAt: string;
   stage: Stage;
@@ -42,22 +50,26 @@ export class FileStore {
   }
 
   async writeOutput(jobId: string, filename: string, content: string | Buffer): Promise<void> {
+    validateJobId(jobId);
     const stage = await this.getJobStage(jobId);
     const jobDir = join(this.baseDir, stage, jobId);
     await writeFile(join(jobDir, filename), content);
   }
 
   async readJobFile(jobId: string, stage: Stage, filename: string): Promise<string> {
+    validateJobId(jobId);
     return readFile(join(this.baseDir, stage, jobId, filename), 'utf-8');
   }
 
   async readMetadata(jobId: string): Promise<JobMetadata> {
+    validateJobId(jobId);
     const stage = await this.getJobStage(jobId);
     const raw = await readFile(join(this.baseDir, stage, jobId, 'metadata.json'), 'utf-8');
     return JSON.parse(raw);
   }
 
   async getJobStage(jobId: string): Promise<Stage> {
+    validateJobId(jobId);
     for (const stage of STAGES) {
       try {
         await stat(join(this.baseDir, stage, jobId));
@@ -70,6 +82,7 @@ export class FileStore {
   }
 
   async moveToStage(jobId: string, target: Stage): Promise<void> {
+    validateJobId(jobId);
     const current = await this.getJobStage(jobId);
     if (current === target) {
       return;
