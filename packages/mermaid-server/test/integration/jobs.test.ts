@@ -1,0 +1,87 @@
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { buildApp } from '../../src/app.js';
+import type { FastifyInstance } from 'fastify';
+
+describe('Job endpoints', () => {
+  let app: FastifyInstance;
+
+  beforeAll(async () => {
+    app = await buildApp();
+  });
+  afterAll(async () => {
+    await app.close();
+  });
+
+  it('submits a job and returns job ID', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/jobs',
+      payload: { diagram: 'graph TD; A-->B', operation: 'render' },
+    });
+    expect(res.statusCode).toBe(202);
+    const body = JSON.parse(res.payload);
+    expect(body).toHaveProperty('jobId');
+    expect(body.status).toBe('processing');
+  });
+
+  it('retrieves a completed job', async () => {
+    // Submit
+    const submitRes = await app.inject({
+      method: 'POST',
+      url: '/api/v1/jobs',
+      payload: { diagram: 'graph TD; A-->B', operation: 'render' },
+    });
+    const { jobId } = JSON.parse(submitRes.payload);
+
+    // Wait briefly for async processing
+    await new Promise((r) => setTimeout(r, 1500));
+
+    // Get result
+    const getRes = await app.inject({
+      method: 'GET',
+      url: `/api/v1/jobs/${jobId}`,
+    });
+    expect(getRes.statusCode).toBe(200);
+    const body = JSON.parse(getRes.payload);
+    expect(body.status).toBe('completed');
+    expect(body.result).toHaveProperty('svg');
+    expect(body.result.svg).toContain('<svg');
+  });
+
+  it('lists recent jobs', async () => {
+    const res = await app.inject({ method: 'GET', url: '/api/v1/jobs' });
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.payload);
+    expect(body.jobs).toBeInstanceOf(Array);
+  });
+
+  it('archives a completed job', async () => {
+    const submitRes = await app.inject({
+      method: 'POST',
+      url: '/api/v1/jobs',
+      payload: { diagram: 'pie\n  "A": 50', operation: 'render' },
+    });
+    const { jobId } = JSON.parse(submitRes.payload);
+    await new Promise((r) => setTimeout(r, 1500));
+
+    const archiveRes = await app.inject({
+      method: 'POST',
+      url: `/api/v1/jobs/${jobId}/archive`,
+    });
+    expect(archiveRes.statusCode).toBe(200);
+
+    const getRes = await app.inject({
+      method: 'GET',
+      url: `/api/v1/jobs/${jobId}`,
+    });
+    expect(JSON.parse(getRes.payload).status).toBe('archived');
+  });
+
+  it('returns 404 for nonexistent job', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/v1/jobs/nonexistent-id',
+    });
+    expect(res.statusCode).toBe(404);
+  });
+});

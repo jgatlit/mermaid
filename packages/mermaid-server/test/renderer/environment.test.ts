@@ -1,0 +1,51 @@
+import { describe, it, expect } from 'vitest';
+import { withEnvironment } from '../../src/renderer/environment.js';
+
+describe('withEnvironment', () => {
+  it('provides global window and document inside callback', async () => {
+    let hadWindow = false;
+    let hadDocument = false;
+
+    await withEnvironment(() => {
+      hadWindow = global.window !== undefined && global.window !== null;
+      hadDocument = global.document !== undefined && global.document !== null;
+    });
+
+    expect(hadWindow).toBe(true);
+    expect(hadDocument).toBe(true);
+  });
+
+  it('restores globals after callback completes', async () => {
+    const originalWindow = global.window;
+    const originalDocument = global.document;
+
+    await withEnvironment(() => {
+      // inside: globals are JSDOM
+    });
+
+    expect(global.window).toBe(originalWindow);
+    expect(global.document).toBe(originalDocument);
+  });
+
+  it('restores globals even if callback throws', async () => {
+    const originalWindow = global.window;
+
+    await expect(
+      withEnvironment(() => {
+        throw new Error('test error');
+      })
+    ).rejects.toThrow('test error');
+
+    expect(global.window).toBe(originalWindow);
+  });
+
+  it('patches getBBox on SVG elements', async () => {
+    await withEnvironment(() => {
+      const svg = global.document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+      const bbox = (svg as Record<string, unknown>).getBBox() as { width: number; height: number };
+      expect(bbox).toHaveProperty('width');
+      expect(bbox).toHaveProperty('height');
+      expect(bbox.width).toBeGreaterThan(0);
+    });
+  });
+});
