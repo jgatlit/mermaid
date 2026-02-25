@@ -41,11 +41,57 @@ describe('withEnvironment', () => {
 
   it('patches getBBox on SVG elements', async () => {
     await withEnvironment(() => {
-      const svg = global.document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-      const bbox = (svg as Record<string, unknown>).getBBox() as { width: number; height: number };
+      const rect = global.document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+      const bbox = (rect as Record<string, unknown>).getBBox() as { width: number; height: number };
       expect(bbox).toHaveProperty('width');
       expect(bbox).toHaveProperty('height');
-      expect(bbox.width).toBeGreaterThan(0);
+      expect(bbox.width).toBe(100); // Fallback for non-text elements
+      expect(bbox.height).toBe(100);
+    });
+  });
+
+  it('getBBox returns text-proportional dimensions for <text> elements', async () => {
+    await withEnvironment(() => {
+      const svg = global.document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      const text = global.document.createElementNS('http://www.w3.org/2000/svg', 'text');
+      text.textContent = 'Hello World'; // 11 chars
+      svg.appendChild(text);
+      global.document.body.appendChild(svg);
+      const bbox = (text as Record<string, unknown>).getBBox() as { width: number; height: number };
+      expect(bbox.width).toBe(88); // 11 × 8
+      expect(bbox.height).toBe(24); // 1 line × 24
+    });
+  });
+
+  it('getBBox returns aggregate dimensions for <g> groups', async () => {
+    await withEnvironment(() => {
+      const svg = global.document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      const g = global.document.createElementNS('http://www.w3.org/2000/svg', 'g');
+      const text1 = global.document.createElementNS('http://www.w3.org/2000/svg', 'text');
+      text1.textContent = 'Node A';
+      const text2 = global.document.createElementNS('http://www.w3.org/2000/svg', 'text');
+      text2.textContent = 'Node B with longer text';
+      g.appendChild(text1);
+      g.appendChild(text2);
+      svg.appendChild(g);
+      global.document.body.appendChild(svg);
+      const bbox = (g as Record<string, unknown>).getBBox() as { width: number; height: number };
+      // Width should reflect the longer text (23 chars × 8 + 32 padding = 216)
+      expect(bbox.width).toBeGreaterThan(200);
+      // Height should accumulate both text elements
+      expect(bbox.height).toBeGreaterThan(50);
+    });
+  });
+
+  it('getBBox returns fallback for elements with no text', async () => {
+    await withEnvironment(() => {
+      const svg = global.document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      const g = global.document.createElementNS('http://www.w3.org/2000/svg', 'g');
+      svg.appendChild(g);
+      global.document.body.appendChild(svg);
+      const bbox = (g as Record<string, unknown>).getBBox() as { width: number; height: number };
+      expect(bbox.width).toBe(100); // Fallback
+      expect(bbox.height).toBe(100);
     });
   });
 
