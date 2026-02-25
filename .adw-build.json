@@ -1,0 +1,4 @@
+{
+  "command": "pnpm build",
+  "commit_message": "build: rebuild mermaid packages"
+}

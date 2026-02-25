@@ -1,0 +1,4 @@
+{
+  "command": "pnpm ci",
+  "commit_message": "test: run vitest suite"
+}
