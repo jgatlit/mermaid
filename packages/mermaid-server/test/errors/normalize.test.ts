@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { normalizeError } from '../../src/errors/normalize.js';
+import { RenderTimeoutError } from '../../src/renderer/queue.js';
 
 describe('normalizeError', () => {
   it('normalizes UnknownDiagramError', () => {
@@ -56,6 +57,14 @@ describe('normalizeError', () => {
     );
     expect(result.code).toBe('INTERNAL_ERROR');
     expect(result.statusCode).toBe(500);
+  });
+
+  it('normalizes RenderTimeoutError as RENDER_TIMEOUT with 503, not a generic 500', () => {
+    const result = normalizeError(new RenderTimeoutError(15_000));
+
+    expect(result.code).toBe('RENDER_TIMEOUT');
+    expect(result.statusCode).toBe(503);
+    expect(result.message).toContain('15000');
   });
 
   it('normalizes non-Error values', () => {

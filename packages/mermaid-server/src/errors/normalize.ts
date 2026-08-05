@@ -1,3 +1,5 @@
+import { RenderTimeoutError } from '../renderer/queue.js';
+
 export interface ApiError {
   code: string;
   message: string;
@@ -37,6 +39,14 @@ const KNOWN_RENDER_INPUT_ERRORS = [
 ];
 
 export function normalizeError(err: unknown): ApiError {
+  if (err instanceof RenderTimeoutError) {
+    return {
+      code: 'RENDER_TIMEOUT',
+      message: err.message,
+      statusCode: 503,
+    };
+  }
+
   // UnknownDiagramError
   if (err instanceof Error && err.name === 'UnknownDiagramError') {
     return {
