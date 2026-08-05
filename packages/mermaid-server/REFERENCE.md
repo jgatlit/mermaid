@@ -281,7 +281,7 @@ Check syntax without generating SVG. Faster and cheaper.
 
 **Contract: syntax only.** `/parse` runs mermaid's grammar parser and nothing
 else — it never lays out labels. A diagram can be `valid: true` here and still
-fail on `/render` with a `RENDER_ERROR` (see [Error Handling](#9-error-handling))
+fail on `/render` with a **500 `INTERNAL_ERROR`** (see [Error Handling](#9-error-handling))
 if its _content_ can't be laid out, even though its _syntax_ is fine. Known
 example: 2+ markdown list items in a node label that's wide enough to
 word-wrap. There is no cheaper way to catch this — the failure only exists
@@ -1047,15 +1047,15 @@ Batch errors include an additional `statusCode` field in each error object.
 
 Extract validation errors are plain strings (just the message).
 
-| Code                   | HTTP | When                                                                                                                                                                                                                                                                  |
-| ---------------------- | ---- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `PARSE_ERROR`          | 422  | Syntax error. `details` may include `line`, `column`, `token`, `expected`.                                                                                                                                                                                            |
-| `UNKNOWN_DIAGRAM_TYPE` | 422  | Text doesn't match any diagram syntax.                                                                                                                                                                                                                                |
-| `RENDER_ERROR`         | 422  | Diagram parses fine but its label content can't be laid out (e.g. a wrapping markdown list). Not caught by `/parse` — see [Validate Before Rendering](#2-validate-before-rendering).                                                                                  |
-| `NOT_FOUND`            | 404  | Job ID doesn't exist.                                                                                                                                                                                                                                                 |
-| `PNG_DISABLED`         | 400  | `outputFormat: "png"` requested but `config.png.enabled` is false (`PNG_ENABLED=false`).                                                                                                                                                                              |
-| `INTERNAL_ERROR`       | 500  | Unexpected server error — a genuine bug, not malformed input.                                                                                                                                                                                                         |
-| `RENDER_TIMEOUT`       | 503  | A render exceeded the server's internal time budget (default 15s) and was abandoned so it couldn't block requests queued behind it. Extremely rare for legitimate diagrams — if this recurs, check for pathological input such as one very long unbroken label/token. |
+| Code                   | HTTP | When                                                                                                                                                                                                                                                                                                                                    |
+| ---------------------- | ---- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PARSE_ERROR`          | 422  | Syntax error. `details` may include `line`, `column`, `token`, `expected`.                                                                                                                                                                                                                                                              |
+| `UNKNOWN_DIAGRAM_TYPE` | 422  | Text doesn't match any diagram syntax.                                                                                                                                                                                                                                                                                                  |
+| ~~`RENDER_ERROR`~~     | —    | **DOES NOT EXIST — never implemented.** Absent from the runtime AND from the live OpenAPI spec at `/docs/json` (verified 2026-08-05, 10+ probes). A diagram that parses but fails at render returns **500 `INTERNAL_ERROR`**, not a 422. Do not branch on this code; the branch will never fire. Tracked in `tsk_da5bbaa67d0940a4b221`. |
+| `NOT_FOUND`            | 404  | Job ID doesn't exist.                                                                                                                                                                                                                                                                                                                   |
+| `PNG_DISABLED`         | 400  | `outputFormat: "png"` requested but `config.png.enabled` is false (`PNG_ENABLED=false`).                                                                                                                                                                                                                                                |
+| `INTERNAL_ERROR`       | 500  | Unexpected server error — a genuine bug, not malformed input.                                                                                                                                                                                                                                                                           |
+| `RENDER_TIMEOUT`       | 503  | A render exceeded the server's internal time budget (default 15s) and was abandoned so it couldn't block requests queued behind it. Extremely rare for legitimate diagrams — if this recurs, check for pathological input such as one very long unbroken label/token.                                                                   |
 
 ---
 
