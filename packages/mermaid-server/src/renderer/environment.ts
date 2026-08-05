@@ -17,6 +17,202 @@ function setProperty(obj: Record<string, unknown>, key: string, value: unknown):
   obj[key] = value;
 }
 
+/**
+ * Visual text rows for an element.
+ *
+ * With `htmlLabels: false` mermaid renders each `<br/>` as a sibling
+ * `<tspan class="text-outer-tspan row">` child of `<text>`, each wrapping an
+ * inner tspan. `textContent` concatenates those rows with NO separator, so
+ * splitting it on newlines always yields a single line — which pinned every node
+ * to one line-height and made width grow with the concatenation instead of the
+ * longest row (see issue #7).
+ *
+ * Direct tspan children are the row boundary. `children` walks only one level,
+ * so the inner tspan elements nested inside each row are never double-counted.
+ * Falls back to newline splitting when an element has no tspan children.
+ */
+function textRows(el: Element, text: string): string[] {
+  const rows = [...el.children]
+    .filter((child) => child.tagName?.toLowerCase() === 'tspan')
+    .map((child) => child.textContent ?? '');
+
+  return rows.length > 0 ? rows : text.split('\n');
+}
+
+const TRANSLATE_RE = /translate\(\s*(-?[\d.]+)\s*[ ,]\s*(-?[\d.]+)/;
+const PATH_NUM_RE = /-?\d*\.?\d+(?:e[+-]?\d+)?/gi;
+const PATH_CMD_RE = /([ACHLMQSTVZachlmqstvz])([^ACHLMQSTVZachlmqstvz]*)/g;
+
+/**
+ * Emit every point a path `d` touches.
+ *
+ * Reading `d` as blind number pairs is wrong: `H`/`V` take a single coordinate
+ * and `A` takes five non-positional parameters before its endpoint, so a d3 axis
+ * like `M0.5,6V0.5H922.5V6` would report a phantom y of 922. Control points are
+ * emitted too — a curve stays inside its control hull, so the resulting box is
+ * correct, just occasionally generous.
+ */
+function eachPathPoint(d: string, emit: (x: number, y: number) => void): void {
+  let cx = 0;
+  let cy = 0;
+  let startX = 0;
+  let startY = 0;
+  const commands = new RegExp(PATH_CMD_RE.source, 'g');
+  let match: RegExpExecArray | null;
+
+  while ((match = commands.exec(d)) !== null) {
+    const cmd = match[1];
+    const abs = cmd.toUpperCase();
+    const relative = cmd !== abs;
+    const numbers = (match[2].match(PATH_NUM_RE) ?? []).map(Number);
+
+    if (abs === 'Z') {
+      cx = startX;
+      cy = startY;
+      emit(cx, cy);
+      continue;
+    }
+
+    // Numbers consumed per repetition of the command.
+    const stride =
+      abs === 'H' || abs === 'V'
+        ? 1
+        : abs === 'A'
+          ? 7
+          : abs === 'C'
+            ? 6
+            : abs === 'S' || abs === 'Q'
+              ? 4
+              : 2;
+
+    for (let i = 0; i + stride <= numbers.length; i += stride) {
+      if (abs === 'H') {
+        cx = relative ? cx + numbers[i] : numbers[i];
+      } else if (abs === 'V') {
+        cy = relative ? cy + numbers[i] : numbers[i];
+      } else if (abs === 'A') {
+        // rx ry x-axis-rotation large-arc-flag sweep-flag x y
+        cx = relative ? cx + numbers[i + 5] : numbers[i + 5];
+        cy = relative ? cy + numbers[i + 6] : numbers[i + 6];
+      } else {
+        // Relative control points are offset from the segment start, not from
+        // each other, so baseX/baseY stay put until the endpoint is consumed.
+        const baseX = cx;
+        const baseY = cy;
+        for (let p = 0; p + 1 < stride; p += 2) {
+          emit(
+            relative ? baseX + numbers[i + p] : numbers[i + p],
+            relative ? baseY + numbers[i + p + 1] : numbers[i + p + 1]
+          );
+        }
+        cx = relative ? baseX + numbers[i + stride - 2] : numbers[i + stride - 2];
+        cy = relative ? baseY + numbers[i + stride - 1] : numbers[i + stride - 1];
+        if (abs === 'M' && i === 0) {
+          startX = cx;
+          startY = cy;
+        }
+      }
+      emit(cx, cy);
+    }
+  }
+}
+
+interface Bounds {
+  minX: number;
+  minY: number;
+  maxX: number;
+  maxY: number;
+  found: boolean;
+}
+
+function attr(el: Element, name: string): number {
+  return parseFloat(el.getAttribute(name) ?? '');
+}
+
+/**
+ * Union of the real geometry laid out beneath an element.
+ *
+ * After dagre runs, flowchart nodes carry explicit boxes —
+ * `<g class="node" transform="translate(266,58)"><rect x="-126" y="-99" width="252" height="198"/>`
+ * — and edges carry coordinates in their path `d`. The previous estimate summed
+ * descendant *text* heights and ignored inter-node spacing and edge routing
+ * entirely, so the root viewBox bounded neither the height nor the width of its
+ * own content — the long-standing undersize issue.
+ *
+ * Returns `found: false` when there is no real geometry to union — notably for
+ * mermaid's label groups, whose `<rect class="background">` carries no width or
+ * height. Those still need the text estimate, because they are measured *during*
+ * layout, before any box exists.
+ */
+function geometricBounds(root: Element): Bounds {
+  const b: Bounds = {
+    minX: Infinity,
+    minY: Infinity,
+    maxX: -Infinity,
+    maxY: -Infinity,
+    found: false,
+  };
+
+  const add = (x1: number, y1: number, x2: number, y2: number): void => {
+    b.minX = Math.min(b.minX, x1, x2);
+    b.minY = Math.min(b.minY, y1, y2);
+    b.maxX = Math.max(b.maxX, x1, x2);
+    b.maxY = Math.max(b.maxY, y1, y2);
+    b.found = true;
+  };
+
+  const walk = (el: Element, dx: number, dy: number): void => {
+    const tag = el.tagName?.toLowerCase() ?? '';
+    // <defs>/<marker> hold off-canvas template geometry — never part of the drawing.
+    if (tag === 'defs' || tag === 'marker') {
+      return;
+    }
+
+    const m = TRANSLATE_RE.exec(el.getAttribute?.('transform') ?? '');
+    const ox = dx + (m ? parseFloat(m[1]) : 0);
+    const oy = dy + (m ? parseFloat(m[2]) : 0);
+
+    if (tag === 'rect') {
+      const w = attr(el, 'width');
+      const h = attr(el, 'height');
+      if (w > 0 && h > 0) {
+        const x = attr(el, 'x') || 0;
+        const y = attr(el, 'y') || 0;
+        add(ox + x, oy + y, ox + x + w, oy + y + h);
+      }
+    } else if (tag === 'circle' || tag === 'ellipse') {
+      const r = attr(el, 'r');
+      const rx = Number.isFinite(r) ? r : attr(el, 'rx');
+      const ry = Number.isFinite(r) ? r : attr(el, 'ry');
+      if (rx > 0 && ry > 0) {
+        const cx = attr(el, 'cx') || 0;
+        const cy = attr(el, 'cy') || 0;
+        add(ox + cx - rx, oy + cy - ry, ox + cx + rx, oy + cy + ry);
+      }
+    } else if (tag === 'path') {
+      eachPathPoint(el.getAttribute('d') ?? '', (x, y) => add(ox + x, oy + y, ox + x, oy + y));
+    } else if (tag === 'polygon' || tag === 'polyline') {
+      const numbers = (el.getAttribute('points') ?? '').match(PATH_NUM_RE);
+      if (numbers) {
+        for (let i = 0; i + 1 < numbers.length; i += 2) {
+          const x = ox + parseFloat(numbers[i]);
+          const y = oy + parseFloat(numbers[i + 1]);
+          add(x, y, x, y);
+        }
+      }
+    }
+
+    for (const child of [...el.children]) {
+      walk(child, ox, oy);
+    }
+  };
+
+  for (const child of [...root.children]) {
+    walk(child, 0, 0);
+  }
+  return b;
+}
+
 export async function withEnvironment<T>(fn: () => Promise<T>): Promise<T> {
   const oldWindow = global.window;
   const oldDocument = global.document;
@@ -27,18 +223,33 @@ export async function withEnvironment<T>(fn: () => Promise<T>): Promise<T> {
       resources: 'usable',
       beforeParse(window) {
         setProperty(window.Element.prototype, 'getBBox', function (this: Element) {
+          // Check if this is a leaf text element or a container group
+          const tagName = this.tagName?.toLowerCase() ?? '';
+
+          // Real laid-out geometry wins over any text heuristic, and is checked
+          // before the empty-text guard below: a group of positioned nodes and
+          // edges is measurable even when it carries no text at all.
+          if (tagName === 'g' || tagName === 'svg') {
+            const geo = geometricBounds(this);
+            if (geo.found) {
+              return {
+                x: geo.minX,
+                y: geo.minY,
+                width: geo.maxX - geo.minX,
+                height: geo.maxY - geo.minY,
+              };
+            }
+          }
+
           // For elements with text content, estimate dimensions from text
           const text = this.textContent ?? '';
           if (!text.trim()) {
             return { ...MOCKED_BBOX };
           }
 
-          // Check if this is a leaf text element or a container group
-          const tagName = this.tagName?.toLowerCase() ?? '';
-
           if (tagName === 'text' || tagName === 'tspan') {
             // Leaf text element — size proportional to content
-            const lines = text.split('\n');
+            const lines = textRows(this, text);
             const maxLen = lines.reduce((m, l) => Math.max(m, l.length), 0);
             return {
               x: 0,
@@ -49,7 +260,8 @@ export async function withEnvironment<T>(fn: () => Promise<T>): Promise<T> {
           }
 
           if (tagName === 'g' || tagName === 'svg') {
-            // Group or root — estimate from all descendant <text> elements.
+            // No real geometry yet (label group, measured during layout) —
+            // estimate from all descendant <text> elements.
             // Only select 'text' (not 'tspan') because text.textContent already
             // aggregates nested tspan content, avoiding double-counting.
             const textEls = this.querySelectorAll('text');
@@ -63,7 +275,7 @@ export async function withEnvironment<T>(fn: () => Promise<T>): Promise<T> {
 
             textEls.forEach((el) => {
               const t = el.textContent ?? '';
-              const lines = t.split('\n');
+              const lines = textRows(el, t);
               const maxLen = lines.reduce((m, l) => Math.max(m, l.length), 0);
               const w = maxLen * CHAR_WIDTH + NODE_PADDING * 2;
               const h = lines.length * LINE_HEIGHT + NODE_PADDING;
