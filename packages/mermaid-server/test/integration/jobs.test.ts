@@ -83,6 +83,43 @@ describe('Job endpoints', () => {
       url: '/api/v1/jobs/00000000-0000-0000-0000-000000000000',
     });
     expect(res.statusCode).toBe(404);
+    // Shape parity with /render's and /batch's error envelope (ApiError:
+    // code + message + statusCode) - jobs.ts used to hand-build this body
+    // without the statusCode field.
+    const body = JSON.parse(res.payload);
+    expect(body.error.code).toBe('NOT_FOUND');
+    expect(body.error.statusCode).toBe(404);
+  });
+
+  it('returns the same ApiError shape for a 404 on archive', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/jobs/00000000-0000-0000-0000-000000000000/archive',
+    });
+    expect(res.statusCode).toBe(404);
+    const body = JSON.parse(res.payload);
+    expect(body.error.code).toBe('NOT_FOUND');
+    expect(body.error.statusCode).toBe(404);
+  });
+
+  it('records render warnings in job metadata (parity with /render and /batch)', async () => {
+    const submitRes = await app.inject({
+      method: 'POST',
+      url: '/api/v1/jobs',
+      payload: {
+        diagram: 'graph TD; A-->B',
+        operation: 'render',
+        config: { htmlLabels: true },
+      },
+    });
+    const { jobId } = JSON.parse(submitRes.payload);
+    await new Promise((r) => setTimeout(r, 1500));
+
+    const getRes = await app.inject({ method: 'GET', url: `/api/v1/jobs/${jobId}` });
+    const body = JSON.parse(getRes.payload);
+    expect(body.status).toBe('completed');
+    expect(body.metadata.warnings).toBeDefined();
+    expect(body.metadata.warnings.some((w: string) => w.includes('htmlLabels'))).toBe(true);
   });
 
   it('rejects path traversal in job ID', async () => {

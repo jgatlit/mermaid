@@ -38,6 +38,10 @@ const KNOWN_RENDER_INPUT_ERRORS = [
   'does not support newlines',
 ];
 
+export function notFoundError(message: string): ApiError {
+  return { code: 'NOT_FOUND', message, statusCode: 404 };
+}
+
 export function normalizeError(err: unknown): ApiError {
   if (err instanceof RenderTimeoutError) {
     return {

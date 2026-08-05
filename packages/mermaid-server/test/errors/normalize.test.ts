@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { normalizeError } from '../../src/errors/normalize.js';
+import { normalizeError, notFoundError } from '../../src/errors/normalize.js';
 import { RenderTimeoutError } from '../../src/renderer/queue.js';
 
 describe('normalizeError', () => {
@@ -71,5 +71,14 @@ describe('normalizeError', () => {
     const result = normalizeError('string error');
     expect(result.code).toBe('INTERNAL_ERROR');
     expect(result.message).toBe('string error');
+  });
+});
+
+describe('notFoundError', () => {
+  it('produces the same ApiError shape as normalizeError, including statusCode', () => {
+    const result = notFoundError('Job abc123 not found');
+    expect(result.code).toBe('NOT_FOUND');
+    expect(result.statusCode).toBe(404);
+    expect(result.message).toBe('Job abc123 not found');
   });
 });

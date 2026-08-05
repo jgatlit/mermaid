@@ -66,6 +66,35 @@ describe('POST /api/v1/batch', () => {
     expect(body.results[0]).not.toHaveProperty('svg');
   });
 
+  it('propagates render warnings per item (parity with /render)', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/batch',
+      payload: {
+        items: [{ id: 'warns', diagram: 'graph TD; A-->B', config: { htmlLabels: true } }],
+      },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.payload);
+    expect(body.results[0].success).toBe(true);
+    expect(body.results[0].warnings).toBeDefined();
+    expect(body.results[0].warnings.some((w: string) => w.includes('htmlLabels'))).toBe(true);
+  });
+
+  it('propagates parse warnings too, not just render', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/batch',
+      payload: {
+        defaults: { operation: 'parse' },
+        items: [{ diagram: 'graph TD; A-->B', config: { htmlLabels: true } }],
+      },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.payload);
+    expect(body.results[0].warnings).toBeDefined();
+  });
+
   it('rejects batch exceeding max items', async () => {
     const items = Array.from({ length: 51 }, (_, i) => ({
       diagram: `graph TD; A${i}-->B${i}`,

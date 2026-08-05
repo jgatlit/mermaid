@@ -1,7 +1,9 @@
 import type { FastifyInstance } from 'fastify';
 import type { MermaidBridge } from '../renderer/mermaid-bridge.js';
+import type { Operation } from '../renderer/operations.js';
+import { runOperation } from '../renderer/operations.js';
 import type { FileStore } from '../storage/store.js';
-import { normalizeError } from '../errors/normalize.js';
+import { normalizeError, notFoundError } from '../errors/normalize.js';
 
 interface JobSubmitBody {
   diagram: string;
@@ -81,9 +83,8 @@ export function jobRoutes(app: FastifyInstance, bridge: MermaidBridge, store: Fi
 
         return response;
       } catch {
-        return reply
-          .status(404)
-          .send({ error: { code: 'NOT_FOUND', message: `Job ${jobId} not found` } });
+        const apiError = notFoundError(`Job ${jobId} not found`);
+        return reply.status(apiError.statusCode).send({ error: apiError });
       }
     }
   );
@@ -119,9 +120,8 @@ export function jobRoutes(app: FastifyInstance, bridge: MermaidBridge, store: Fi
         await store.archive(jobId);
         return { jobId, status: 'archived' };
       } catch {
-        return reply
-          .status(404)
-          .send({ error: { code: 'NOT_FOUND', message: `Job ${jobId} not found` } });
+        const apiError = notFoundError(`Job ${jobId} not found`);
+        return reply.status(apiError.statusCode).send({ error: apiError });
       }
     }
   );
@@ -130,7 +130,7 @@ export function jobRoutes(app: FastifyInstance, bridge: MermaidBridge, store: Fi
 async function processJob(
   jobId: string,
   diagram: string,
-  operation: string,
+  operation: Operation,
   config: Record<string, unknown> | undefined,
   bridge: MermaidBridge,
   store: FileStore
@@ -138,26 +138,17 @@ async function processJob(
   try {
     await store.moveToStage(jobId, 'staged');
 
-    if (operation === 'detect') {
-      const diagramType = await bridge.detect(diagram);
-      const meta = await store.readMetadata(jobId);
-      meta.diagramType = diagramType;
-      meta.status = 'completed';
-      await store.writeOutput(jobId, 'metadata.json', JSON.stringify(meta, null, 2));
-    } else if (operation === 'parse') {
-      const result = await bridge.parse(diagram, config);
-      const meta = await store.readMetadata(jobId);
-      meta.diagramType = result.diagramType;
-      meta.status = 'completed';
-      await store.writeOutput(jobId, 'metadata.json', JSON.stringify(meta, null, 2));
-    } else {
-      const result = await bridge.render(diagram, config);
+    const result = await runOperation(bridge, operation, diagram, config);
+    if (result.svg !== undefined) {
       await store.writeOutput(jobId, 'diagram.svg', result.svg);
-      const meta = await store.readMetadata(jobId);
-      meta.diagramType = result.diagramType;
-      meta.status = 'completed';
-      await store.writeOutput(jobId, 'metadata.json', JSON.stringify(meta, null, 2));
     }
+    const meta = await store.readMetadata(jobId);
+    meta.diagramType = result.diagramType;
+    meta.status = 'completed';
+    if (result.warnings?.length) {
+      meta.warnings = result.warnings;
+    }
+    await store.writeOutput(jobId, 'metadata.json', JSON.stringify(meta, null, 2));
 
     await store.moveToStage(jobId, 'output');
   } catch (err) {

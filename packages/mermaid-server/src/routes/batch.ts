@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import type { MermaidBridge } from '../renderer/mermaid-bridge.js';
+import { runOperation } from '../renderer/operations.js';
 import { normalizeError } from '../errors/normalize.js';
 
 interface BatchItem {
@@ -63,20 +64,17 @@ export function batchRoute(app: FastifyInstance, bridge: MermaidBridge) {
         const entry: Record<string, unknown> = { id: item.id };
 
         try {
-          if (op === 'detect') {
-            const diagramType = await bridge.detect(item.diagram);
-            entry.success = true;
-            entry.diagramType = diagramType;
-          } else if (op === 'parse') {
-            const result = await bridge.parse(item.diagram, config);
-            entry.success = true;
-            entry.diagramType = result.diagramType;
-            entry.valid = true;
-          } else {
-            const result = await bridge.render(item.diagram, config);
-            entry.success = true;
+          const result = await runOperation(bridge, op, item.diagram, config);
+          entry.success = true;
+          entry.diagramType = result.diagramType;
+          if (result.svg !== undefined) {
             entry.svg = result.svg;
-            entry.diagramType = result.diagramType;
+          }
+          if (op === 'parse') {
+            entry.valid = true;
+          }
+          if (result.warnings?.length) {
+            entry.warnings = result.warnings;
           }
           succeeded++;
         } catch (err) {
