@@ -2,6 +2,8 @@ import type { FastifyInstance } from 'fastify';
 import type { MermaidBridge } from '../renderer/mermaid-bridge.js';
 import type { Operation } from '../renderer/operations.js';
 import { runOperation } from '../renderer/operations.js';
+import { svgToPng } from '../renderer/png.js';
+import type { ServerConfig } from '../config.js';
 import type { FileStore } from '../storage/store.js';
 import { normalizeError, notFoundError } from '../errors/normalize.js';
 
@@ -9,9 +11,15 @@ interface JobSubmitBody {
   diagram: string;
   operation?: 'parse' | 'detect' | 'render';
   config?: Record<string, unknown>;
+  outputFormat?: 'svg' | 'png';
 }
 
-export function jobRoutes(app: FastifyInstance, bridge: MermaidBridge, store: FileStore) {
+export function jobRoutes(
+  app: FastifyInstance,
+  bridge: MermaidBridge,
+  store: FileStore,
+  serverConfig: ServerConfig
+) {
   // Submit a new job
   app.post(
     '/api/v1/jobs',
@@ -24,17 +32,38 @@ export function jobRoutes(app: FastifyInstance, bridge: MermaidBridge, store: Fi
             diagram: { type: 'string', maxLength: 50000 },
             operation: { type: 'string', enum: ['parse', 'detect', 'render'], default: 'render' },
             config: { type: 'object', additionalProperties: true },
+            outputFormat: { type: 'string', enum: ['svg', 'png'], default: 'svg' },
           },
         },
       },
     },
     async (request, reply) => {
-      const { diagram, operation = 'render', config } = request.body as JobSubmitBody;
+      const {
+        diagram,
+        operation = 'render',
+        config,
+        outputFormat = 'svg',
+      } = request.body as JobSubmitBody;
 
-      const jobId = await store.writeInput(diagram, { operation, config, status: 'processing' });
+      if (outputFormat === 'png' && !serverConfig.png.enabled) {
+        return reply.status(400).send({
+          error: {
+            code: 'PNG_DISABLED',
+            message: 'PNG output is disabled on this server (PNG_ENABLED=false)',
+            statusCode: 400,
+          },
+        });
+      }
+
+      const jobId = await store.writeInput(diagram, {
+        operation,
+        config,
+        outputFormat,
+        status: 'processing',
+      });
 
       // Process asynchronously (fire-and-forget)
-      processJob(jobId, diagram, operation, config, bridge, store).catch((err) => {
+      processJob(jobId, diagram, operation, config, outputFormat, bridge, store).catch((err) => {
         app.log.error({ jobId, err }, 'Job processing failed');
       });
 
@@ -73,10 +102,15 @@ export function jobRoutes(app: FastifyInstance, bridge: MermaidBridge, store: Fi
 
         if (stage === 'output' || stage === 'archive') {
           try {
-            const svg = await store.readJobFile(jobId, stage, 'diagram.svg');
-            response.result = { svg, diagramType: meta.diagramType };
+            if (meta.outputFormat === 'png') {
+              const png = await store.readJobFile(jobId, stage, 'diagram.png', null);
+              response.result = { png: png.toString('base64'), diagramType: meta.diagramType };
+            } else {
+              const svg = await store.readJobFile(jobId, stage, 'diagram.svg');
+              response.result = { svg, diagramType: meta.diagramType };
+            }
           } catch {
-            // No SVG output (parse/detect operation)
+            // No output file (parse/detect operation)
             response.result = { diagramType: meta.diagramType };
           }
         }
@@ -132,6 +166,7 @@ async function processJob(
   diagram: string,
   operation: Operation,
   config: Record<string, unknown> | undefined,
+  outputFormat: 'svg' | 'png',
   bridge: MermaidBridge,
   store: FileStore
 ) {
@@ -140,7 +175,11 @@ async function processJob(
 
     const result = await runOperation(bridge, operation, diagram, config);
     if (result.svg !== undefined) {
-      await store.writeOutput(jobId, 'diagram.svg', result.svg);
+      if (outputFormat === 'png') {
+        await store.writeOutput(jobId, 'diagram.png', svgToPng(result.svg));
+      } else {
+        await store.writeOutput(jobId, 'diagram.svg', result.svg);
+      }
     }
     const meta = await store.readMetadata(jobId);
     meta.diagramType = result.diagramType;

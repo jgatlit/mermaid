@@ -56,9 +56,17 @@ export class FileStore {
     await writeFile(join(jobDir, filename), content);
   }
 
-  async readJobFile(jobId: string, stage: Stage, filename: string): Promise<string> {
+  async readJobFile(jobId: string, stage: Stage, filename: string): Promise<string>;
+  async readJobFile(jobId: string, stage: Stage, filename: string, encoding: null): Promise<Buffer>;
+  async readJobFile(
+    jobId: string,
+    stage: Stage,
+    filename: string,
+    encoding: BufferEncoding | null = 'utf-8'
+  ): Promise<string | Buffer> {
     validateJobId(jobId);
-    return readFile(join(this.baseDir, stage, jobId, filename), 'utf-8');
+    const path = join(this.baseDir, stage, jobId, filename);
+    return encoding === null ? readFile(path) : readFile(path, encoding);
   }
 
   async readMetadata(jobId: string): Promise<JobMetadata> {

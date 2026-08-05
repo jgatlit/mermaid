@@ -51,8 +51,8 @@ export async function buildApp(config: ServerConfig = loadConfig()) {
   parseRoute(app, bridge, parseCache);
   renderRoute(app, bridge, config, renderCache);
   extractRoute(app, bridge);
-  batchRoute(app, bridge);
-  jobRoutes(app, bridge, store);
+  batchRoute(app, bridge, config);
+  jobRoutes(app, bridge, store, config);
 
   return app;
 }

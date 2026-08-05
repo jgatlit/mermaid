@@ -1,6 +1,9 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { buildApp } from '../../src/app.js';
+import { loadConfig } from '../../src/config.js';
 import type { FastifyInstance } from 'fastify';
+
+const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 
 describe('Job endpoints', () => {
   let app: FastifyInstance;
@@ -128,5 +131,56 @@ describe('Job endpoints', () => {
       url: '/api/v1/jobs/../../etc/passwd',
     });
     expect(res.statusCode).toBe(404);
+  });
+
+  it('supports png output format', async () => {
+    const submitRes = await app.inject({
+      method: 'POST',
+      url: '/api/v1/jobs',
+      payload: { diagram: 'graph TD; A-->B', operation: 'render', outputFormat: 'png' },
+    });
+    expect(submitRes.statusCode).toBe(202);
+    const { jobId } = JSON.parse(submitRes.payload);
+    await new Promise((r) => setTimeout(r, 1500));
+
+    const getRes = await app.inject({ method: 'GET', url: `/api/v1/jobs/${jobId}` });
+    const body = JSON.parse(getRes.payload);
+    expect(body.status).toBe('completed');
+    expect(body.result).toHaveProperty('png');
+    expect(body.result).not.toHaveProperty('svg');
+    expect(Buffer.from(body.result.png, 'base64').subarray(0, 8)).toEqual(PNG_MAGIC);
+  });
+});
+
+describe('Job endpoints with PNG disabled', () => {
+  let disabledApp: FastifyInstance;
+
+  beforeAll(async () => {
+    const config = loadConfig();
+    disabledApp = await buildApp({ ...config, png: { ...config.png, enabled: false } });
+  });
+  afterAll(async () => {
+    await disabledApp.close();
+  });
+
+  it('rejects png job submission synchronously, before creating a job', async () => {
+    const res = await disabledApp.inject({
+      method: 'POST',
+      url: '/api/v1/jobs',
+      payload: { diagram: 'graph TD; A-->B', outputFormat: 'png' },
+    });
+    expect(res.statusCode).toBe(400);
+    const body = JSON.parse(res.payload);
+    expect(body.error.code).toBe('PNG_DISABLED');
+    expect(body).not.toHaveProperty('jobId');
+  });
+
+  it('still accepts svg job submission', async () => {
+    const res = await disabledApp.inject({
+      method: 'POST',
+      url: '/api/v1/jobs',
+      payload: { diagram: 'graph TD; A-->B' },
+    });
+    expect(res.statusCode).toBe(202);
   });
 });

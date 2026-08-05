@@ -1,6 +1,8 @@
 import type { FastifyInstance } from 'fastify';
 import type { MermaidBridge } from '../renderer/mermaid-bridge.js';
 import { runOperation } from '../renderer/operations.js';
+import { svgToPng } from '../renderer/png.js';
+import type { ServerConfig } from '../config.js';
 import { normalizeError } from '../errors/normalize.js';
 
 interface BatchItem {
@@ -8,6 +10,7 @@ interface BatchItem {
   diagram: string;
   operation?: 'parse' | 'detect' | 'render';
   config?: Record<string, unknown>;
+  outputFormat?: 'svg' | 'png';
 }
 
 interface BatchBody {
@@ -15,10 +18,15 @@ interface BatchBody {
   defaults?: {
     operation?: 'parse' | 'detect' | 'render';
     config?: Record<string, unknown>;
+    outputFormat?: 'svg' | 'png';
   };
 }
 
-export function batchRoute(app: FastifyInstance, bridge: MermaidBridge) {
+export function batchRoute(
+  app: FastifyInstance,
+  bridge: MermaidBridge,
+  serverConfig: ServerConfig
+) {
   app.post(
     '/api/v1/batch',
     {
@@ -38,6 +46,7 @@ export function batchRoute(app: FastifyInstance, bridge: MermaidBridge) {
                   diagram: { type: 'string', maxLength: 50000 },
                   operation: { type: 'string', enum: ['parse', 'detect', 'render'] },
                   config: { type: 'object', additionalProperties: true },
+                  outputFormat: { type: 'string', enum: ['svg', 'png'] },
                 },
               },
             },
@@ -46,6 +55,7 @@ export function batchRoute(app: FastifyInstance, bridge: MermaidBridge) {
               properties: {
                 operation: { type: 'string', enum: ['parse', 'detect', 'render'] },
                 config: { type: 'object', additionalProperties: true },
+                outputFormat: { type: 'string', enum: ['svg', 'png'] },
               },
             },
           },
@@ -60,15 +70,32 @@ export function batchRoute(app: FastifyInstance, bridge: MermaidBridge) {
 
       for (const item of items) {
         const op = item.operation ?? defaults?.operation ?? 'render';
+        const outputFormat = item.outputFormat ?? defaults?.outputFormat ?? 'svg';
         const config = { ...defaults?.config, ...item.config };
         const entry: Record<string, unknown> = { id: item.id };
+
+        if (outputFormat === 'png' && !serverConfig.png.enabled) {
+          entry.success = false;
+          entry.error = {
+            code: 'PNG_DISABLED',
+            message: 'PNG output is disabled on this server (PNG_ENABLED=false)',
+            statusCode: 400,
+          };
+          failed++;
+          results.push(entry);
+          continue;
+        }
 
         try {
           const result = await runOperation(bridge, op, item.diagram, config);
           entry.success = true;
           entry.diagramType = result.diagramType;
           if (result.svg !== undefined) {
-            entry.svg = result.svg;
+            if (outputFormat === 'png') {
+              entry.png = svgToPng(result.svg).toString('base64');
+            } else {
+              entry.svg = result.svg;
+            }
           }
           if (op === 'parse') {
             entry.valid = true;
