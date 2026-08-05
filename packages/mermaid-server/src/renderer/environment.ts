@@ -244,7 +244,17 @@ export async function withEnvironment<T>(fn: () => Promise<T>): Promise<T> {
           // For elements with text content, estimate dimensions from text
           const text = this.textContent ?? '';
           if (!text.trim()) {
-            return { ...MOCKED_BBOX };
+            // Empty text and empty containers occupy no space, and zeros are what
+            // a browser reports for them. Handing back the fallback box instead
+            // made dagre reserve a full label's worth of rank space for every
+            // unlabelled edge — mermaid measures an edge label through its <text>,
+            // so an empty one produced a 100x100 label box where a real label
+            // measured 28x28, and an EMPTY edge label pushed nodes further apart
+            // than a real one did. Other leaf shapes keep the fallback: a bare
+            // <rect> has no meaningful box either way (see issue #9).
+            return tagName === 'g' || tagName === 'svg' || tagName === 'text' || tagName === 'tspan'
+              ? { x: 0, y: 0, width: 0, height: 0 }
+              : { ...MOCKED_BBOX };
           }
 
           if (tagName === 'text' || tagName === 'tspan') {

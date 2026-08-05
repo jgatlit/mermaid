@@ -191,15 +191,66 @@ describe('withEnvironment', () => {
     });
   });
 
-  it('getBBox returns fallback for elements with no text', async () => {
+  // An unlabelled edge still emits an empty <g class="edgeLabel">. Returning the
+  // 100x100 fallback for it made dagre reserve a full label's worth of rank space
+  // for a label that does not exist — so an EMPTY edge label pushed nodes further
+  // apart (gap 250) than a real one did (gap 178). A browser returns zeros here.
+
+  it('getBBox returns an empty box for a container with no geometry and no text', async () => {
+    await withEnvironment(() => {
+      const svg = global.document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      const g = global.document.createElementNS('http://www.w3.org/2000/svg', 'g');
+      g.setAttribute('class', 'edgeLabel');
+      svg.appendChild(g);
+      global.document.body.appendChild(svg);
+      const bbox = (g as Record<string, unknown>).getBBox() as { width: number; height: number };
+      expect(bbox.width).toBe(0);
+      expect(bbox.height).toBe(0);
+    });
+  });
+
+  it('getBBox returns an empty box for a text element with no content', async () => {
+    await withEnvironment(() => {
+      // mermaid measures an edge label through its <text>, not the wrapping <g>.
+      // An unlabelled edge emits <text><tspan/></text> with no content; returning
+      // the fallback box for it produced a 100x100 label (transform
+      // "translate(-50, -50)") where a real label measured 28x28.
+      const svg = global.document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      const text = global.document.createElementNS('http://www.w3.org/2000/svg', 'text');
+      const tspan = global.document.createElementNS('http://www.w3.org/2000/svg', 'tspan');
+      text.appendChild(tspan);
+      svg.appendChild(text);
+      global.document.body.appendChild(svg);
+      const bbox = (text as Record<string, unknown>).getBBox() as { width: number; height: number };
+      expect(bbox.width).toBe(0);
+      expect(bbox.height).toBe(0);
+    });
+  });
+
+  it('getBBox keeps the 100x100 fallback for non-container leaf elements', async () => {
+    await withEnvironment(() => {
+      const svg = global.document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      const path = global.document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      svg.appendChild(path);
+      global.document.body.appendChild(svg);
+      const bbox = (path as Record<string, unknown>).getBBox() as { width: number; height: number };
+      expect(bbox.width).toBe(100);
+      expect(bbox.height).toBe(100);
+    });
+  });
+
+  // Previously asserted 100x100 here. That encoded the defect in issue #9: an
+  // empty group is not 100x100 in any browser, and treating it as such reserved
+  // rank space for labels that do not exist.
+  it('getBBox returns an empty box for a group with no children', async () => {
     await withEnvironment(() => {
       const svg = global.document.createElementNS('http://www.w3.org/2000/svg', 'svg');
       const g = global.document.createElementNS('http://www.w3.org/2000/svg', 'g');
       svg.appendChild(g);
       global.document.body.appendChild(svg);
       const bbox = (g as Record<string, unknown>).getBBox() as { width: number; height: number };
-      expect(bbox.width).toBe(100); // Fallback
-      expect(bbox.height).toBe(100);
+      expect(bbox.width).toBe(0);
+      expect(bbox.height).toBe(0);
     });
   });
 
