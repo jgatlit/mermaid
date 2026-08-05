@@ -158,6 +158,15 @@ function normalizeFlowchartLabelBreaks(
 const LITERAL_NEWLINE_WARNING =
   'Literal "\\n" in a label was converted to <br/> (the only line-break form flowchart labels render). Escape it as "\\\\n" if you actually want the two characters \\ and n.';
 
+// htmlLabels:true renders labels as <foreignObject><div>...</div></foreignObject>.
+// That's valid, well-formed SVG - but when the response is loaded via <img> (the
+// majority embedding pattern for markdown/docs), the browser's <img> decoder does
+// not execute foreignObject's embedded HTML, so the label text is invisible with
+// no error. Every other silent-rewrite case here already warns; this was the one
+// gap (see mermaid-server-deploy-hazards.md-adjacent handoff finding, 2026-08-05).
+const HTML_LABELS_WARNING =
+  'htmlLabels is enabled: labels render as <foreignObject> HTML, which shows no visible text when this SVG is loaded via <img> (the common embedding pattern for markdown/docs). Leave htmlLabels unset/false if the output will be embedded that way.';
+
 function strippedConfigWarnings(strippedKeys: string[]): string[] {
   return strippedKeys.map(
     (key) => `Config key "${key}" was removed - not permitted in this server context.`
@@ -220,11 +229,13 @@ export class MermaidBridge {
         const mermaid = this.getMermaid();
         const warnings: string[] = [];
         let strippedKeys: string[] = [];
+        let effectiveConfig: MermaidConfig = this.defaultConfig;
         try {
           if (config) {
             const sanitized = sanitizeConfig(config);
             strippedKeys = sanitized.strippedKeys;
-            mermaid.initialize({ ...this.defaultConfig, ...sanitized.config });
+            effectiveConfig = { ...this.defaultConfig, ...sanitized.config };
+            mermaid.initialize(effectiveConfig);
           }
           const diagramType = mermaid.detectType(text);
           const normalized = normalizeFlowchartLabelBreaks(text, diagramType);
@@ -232,6 +243,9 @@ export class MermaidBridge {
             warnings.push(LITERAL_NEWLINE_WARNING);
           }
           warnings.push(...strippedConfigWarnings(strippedKeys));
+          if (effectiveConfig.htmlLabels) {
+            warnings.push(HTML_LABELS_WARNING);
+          }
 
           const result = await mermaid.parse(normalized.text);
           const withWarnings = warnings.length > 0 ? { ...result, warnings } : result;
@@ -263,11 +277,13 @@ export class MermaidBridge {
         const id = `mermaid-server-${++renderCounter}`;
         const warnings: string[] = [];
         let strippedKeys: string[] = [];
+        let effectiveConfig: MermaidConfig = this.defaultConfig;
         try {
           if (config) {
             const sanitized = sanitizeConfig(config);
             strippedKeys = sanitized.strippedKeys;
-            mermaid.initialize({ ...this.defaultConfig, ...sanitized.config });
+            effectiveConfig = { ...this.defaultConfig, ...sanitized.config };
+            mermaid.initialize(effectiveConfig);
           }
           const diagramType = mermaid.detectType(text);
           const normalized = normalizeFlowchartLabelBreaks(text, diagramType);
@@ -275,6 +291,9 @@ export class MermaidBridge {
             warnings.push(LITERAL_NEWLINE_WARNING);
           }
           warnings.push(...strippedConfigWarnings(strippedKeys));
+          if (effectiveConfig.htmlLabels) {
+            warnings.push(HTML_LABELS_WARNING);
+          }
 
           const result = await mermaid.render(id, normalized.text);
           return {

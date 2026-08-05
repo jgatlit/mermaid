@@ -113,5 +113,16 @@ describe('MermaidBridge', () => {
       const withoutBlocked = await bridge.render('graph TD; A-->B', { theme: 'dark' });
       expect(withoutBlocked.warnings).toBeUndefined();
     });
+
+    it('warns when htmlLabels resolves truthy, silently otherwise', async () => {
+      const withHtmlLabels = await bridge.render('graph TD; A-->B', {
+        htmlLabels: true,
+      } as never);
+      expect(withHtmlLabels.warnings).toBeDefined();
+      expect(withHtmlLabels.warnings?.some((w) => w.includes('htmlLabels'))).toBe(true);
+
+      const withoutHtmlLabels = await bridge.render('graph TD; A-->B', { theme: 'dark' });
+      expect(withoutHtmlLabels.warnings).toBeUndefined();
+    });
   });
 });
