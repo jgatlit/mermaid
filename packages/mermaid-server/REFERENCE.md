@@ -1047,14 +1047,15 @@ Batch errors include an additional `statusCode` field in each error object.
 
 Extract validation errors are plain strings (just the message).
 
-| Code                   | HTTP | When                                                                                                                                                                                 |
-| ---------------------- | ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `PARSE_ERROR`          | 422  | Syntax error. `details` may include `line`, `column`, `token`, `expected`.                                                                                                           |
-| `UNKNOWN_DIAGRAM_TYPE` | 422  | Text doesn't match any diagram syntax.                                                                                                                                               |
-| `RENDER_ERROR`         | 422  | Diagram parses fine but its label content can't be laid out (e.g. a wrapping markdown list). Not caught by `/parse` — see [Validate Before Rendering](#2-validate-before-rendering). |
-| `NOT_FOUND`            | 404  | Job ID doesn't exist.                                                                                                                                                                |
-| `PNG_DISABLED`         | 400  | `outputFormat: "png"` requested but `config.png.enabled` is false (`PNG_ENABLED=false`).                                                                                             |
-| `INTERNAL_ERROR`       | 500  | Unexpected server error — a genuine bug, not malformed input.                                                                                                                        |
+| Code                   | HTTP | When                                                                                                                                                                                                                                                                  |
+| ---------------------- | ---- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PARSE_ERROR`          | 422  | Syntax error. `details` may include `line`, `column`, `token`, `expected`.                                                                                                                                                                                            |
+| `UNKNOWN_DIAGRAM_TYPE` | 422  | Text doesn't match any diagram syntax.                                                                                                                                                                                                                                |
+| `RENDER_ERROR`         | 422  | Diagram parses fine but its label content can't be laid out (e.g. a wrapping markdown list). Not caught by `/parse` — see [Validate Before Rendering](#2-validate-before-rendering).                                                                                  |
+| `NOT_FOUND`            | 404  | Job ID doesn't exist.                                                                                                                                                                                                                                                 |
+| `PNG_DISABLED`         | 400  | `outputFormat: "png"` requested but `config.png.enabled` is false (`PNG_ENABLED=false`).                                                                                                                                                                              |
+| `INTERNAL_ERROR`       | 500  | Unexpected server error — a genuine bug, not malformed input.                                                                                                                                                                                                         |
+| `RENDER_TIMEOUT`       | 503  | A render exceeded the server's internal time budget (default 15s) and was abandoned so it couldn't block requests queued behind it. Extremely rare for legitimate diagrams — if this recurs, check for pathological input such as one very long unbroken label/token. |
 
 ---
 
@@ -1066,6 +1067,7 @@ Extract validation errors are plain strings (just the message).
 | Markdown text (extract) | 500,000 characters                                            |
 | Batch items             | 50 per request                                                |
 | Output formats          | SVG, PNG (gated by `config.png.enabled` / `capabilities.png`) |
+| Render timeout          | 15 seconds per render (`RENDER_TIMEOUT`, HTTP 503)            |
 
 ---
 
@@ -1085,6 +1087,13 @@ Extract validation errors are plain strings (just the message).
 - **`mindmap` is currently broken** for an unrelated reason (`Cannot read
 properties of undefined (reading 'h')`, HTTP 500). Tracked separately from
   the above; not a label-content or geometry issue.
+- **Renders are time-boxed at 15s** (`RENDER_TIMEOUT`, HTTP 503) — added
+  2026-08-05 after a single pathological input (one ~50,000-character
+  unbroken label) permanently wedged the render queue in production, since
+  it never crashed or threw, it just never returned. The timeout guarantees
+  one bad render becomes one failed request instead of a total outage; it
+  does not fix whatever caused that specific render to hang in the first
+  place.
 
 ---
 
