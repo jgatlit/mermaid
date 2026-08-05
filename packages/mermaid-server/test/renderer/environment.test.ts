@@ -105,6 +105,99 @@ describe('withEnvironment', () => {
     expect((global as Record<string, unknown>).CSSStyleSheet).toBe(original);
   });
 
+  // vitest's OWN jsdom test environment (vite.config.ts: environment: 'jsdom') gives
+  // every test file in this package an ambient global `screen`/`Image` -- this is
+  // exactly the mechanism that let the 2026-08-05 CSSStyleSheet incident ship
+  // undetected (the whole test suite passed while production 500'd, because
+  // vitest's jsdom masked the gap in withEnvironment's hand-rolled one). A test
+  // that only checks `typeof screen === 'object'` would pass against vitest's
+  // ambient global regardless of whether withEnvironment sets its own -- proving
+  // nothing. These assert a value/behavior that only OUR mock produces, so they
+  // fail correctly if withEnvironment stops setting these globals itself.
+
+  it('exposes screen.availWidth as a bare global with a wide, non-zero value (mermaid core c4Renderer reads screen.availWidth unconditionally, and jsdom itself defaults it to 0, which would force every C4 shape onto its own row)', async () => {
+    let availWidth: number | undefined;
+
+    await withEnvironment(() => {
+      const screenGlobal = (global as Record<string, unknown>).screen as
+        | { availWidth?: number }
+        | undefined;
+      availWidth = screenGlobal?.availWidth;
+    });
+
+    // Exact value our mock sets, distinct from jsdom's real (0) or any other
+    // ambient default -- proves withEnvironment itself provided this, not a
+    // global that happened to already be present.
+    expect(availWidth).toBe(1920);
+  });
+
+  it('restores screen after callback completes', async () => {
+    const original = (global as Record<string, unknown>).screen;
+
+    await withEnvironment(() => {
+      // inside: screen is the mock
+    });
+
+    expect((global as Record<string, unknown>).screen).toBe(original);
+  });
+
+  it('exposes a mocked Image that never performs a real fetch for img.src (mermaid core imageSquare sets img.src to diagram-supplied, potentially attacker-controlled, content, then awaits decode() -- a real fetch here is an SSRF vector and a hang vector, not just a missing global)', async () => {
+    let isRealJsdomImage: boolean | undefined;
+    let settledWithinMicrotasks = false;
+    let naturalWidth: number | undefined;
+    let naturalHeight: number | undefined;
+
+    await withEnvironment(async () => {
+      const ImageCtor = (global as Record<string, unknown>).Image as new () => {
+        src: string;
+        naturalWidth: number;
+        naturalHeight: number;
+        decode(): Promise<void>;
+      };
+      const img = new ImageCtor();
+      // TEST-NET-1 (RFC 5737): reserved, non-routable. Even if the mock were
+      // broken and something tried to actually fetch this, it cannot reach a
+      // real host.
+      img.src = 'https://192.0.2.1/should-never-be-requested.png';
+
+      const HTMLImageElementCtor = (
+        global.window as unknown as { HTMLImageElement: new () => unknown }
+      ).HTMLImageElement;
+      isRealJsdomImage = img instanceof HTMLImageElementCtor;
+
+      let settled = false;
+      const decodePromise = img.decode().then(() => {
+        settled = true;
+      });
+      // A real network fetch cannot settle within same-tick microtasks -- it
+      // requires at least one real I/O macrotask. Two microtask ticks is
+      // enough room for a synchronous mock to resolve and nowhere near enough
+      // for any real DNS/TCP round trip to complete.
+      await Promise.resolve();
+      await Promise.resolve();
+      settledWithinMicrotasks = settled;
+      await decodePromise;
+
+      naturalWidth = img.naturalWidth;
+      naturalHeight = img.naturalHeight;
+    });
+
+    expect(isRealJsdomImage).toBe(false);
+    expect(settledWithinMicrotasks).toBe(true);
+    expect(naturalWidth).toBe(100);
+    expect(naturalHeight).toBe(100);
+  });
+
+  it('restores Image after callback completes', async () => {
+    const original = (global as Record<string, unknown>).Image;
+
+    await withEnvironment(() => {
+      // inside: Image is the mock
+    });
+
+    expect((global as Record<string, unknown>).Image).toBe(original);
+  });
+
   it('patches getBBox on SVG elements', async () => {
     await withEnvironment(() => {
       const rect = global.document.createElementNS('http://www.w3.org/2000/svg', 'rect');

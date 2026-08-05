@@ -99,6 +99,7 @@ logmeta
 LOGMSG
 lookaheads
 LPAREN
+macrotask
 mdast
 metafile
 minlen
