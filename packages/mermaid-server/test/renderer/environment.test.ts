@@ -39,6 +39,45 @@ describe('withEnvironment', () => {
     expect(global.window).toBe(originalWindow);
   });
 
+  // RenderQueue now times out a hung render and moves on to the next queued
+  // one (2026-08-05 wedge fix) instead of waiting forever. That means a call
+  // abandoned by the timeout can still be running in the background, sharing
+  // these same process-global window/document with whatever call is now
+  // actually active. If the abandoned call's promise eventually settles, its
+  // `finally` must not blindly restore globals out from under the call that
+  // superseded it -- that would silently corrupt an unrelated, healthy
+  // render's DOM mid-flight.
+  it('a call abandoned mid-flight does not restore globals over a still-active later call', async () => {
+    let releaseZombie!: () => void;
+    const zombieGate = new Promise<void>((resolve) => {
+      releaseZombie = resolve;
+    });
+    const zombie = withEnvironment(async () => {
+      await zombieGate;
+    });
+
+    let releaseLater!: () => void;
+    const laterGate = new Promise<void>((resolve) => {
+      releaseLater = resolve;
+    });
+    const later = withEnvironment(async () => {
+      await laterGate;
+      return global.window;
+    });
+
+    // Installed synchronously the moment `later` started, before its first await.
+    const laterWindow = global.window;
+
+    // Let the zombie's hang resolve now, while `later` is still in progress.
+    releaseZombie();
+    await zombie;
+
+    expect(global.window).toBe(laterWindow);
+
+    releaseLater();
+    expect(await later).toBe(laterWindow);
+  });
+
   it('exposes CSSStyleSheet as a bare global (mermaid core calls `new CSSStyleSheet()` unconditionally)', async () => {
     let ctorType: string | undefined;
     let instanceWorks = false;

@@ -1091,9 +1091,19 @@ properties of undefined (reading 'h')`, HTTP 500). Tracked separately from
   2026-08-05 after a single pathological input (one ~50,000-character
   unbroken label) permanently wedged the render queue in production, since
   it never crashed or threw, it just never returned. The timeout guarantees
-  one bad render becomes one failed request instead of a total outage; it
+  the _queue_ stops waiting and serves the next request; it does not cancel
+  the abandoned render (JS can't abort an arbitrary in-flight promise) and
   does not fix whatever caused that specific render to hang in the first
-  place.
+  place. A generation guard in `environment.ts` prevents an abandoned
+  render, if it eventually settles, from restoring its stale JSDOM globals
+  over whatever render is active by then — but if it resumes execution
+  _before_ settling while another render is active, it briefly shares that
+  render's live `document`/`window`, since both are the same process-global
+  values. This is a narrow, low-probability window (requires a render to
+  both exceed 15s and later actually resolve rather than hang forever, at
+  the same moment another render is in flight); closing it fully would need
+  per-render environment isolation (e.g. a `vm` context or worker per
+  render), which is a larger change tracked separately, not done here.
 
 ---
 

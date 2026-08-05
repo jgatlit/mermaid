@@ -213,7 +213,18 @@ function geometricBounds(root: Element): Bounds {
   return b;
 }
 
+// RenderQueue times out a render that never settles and moves on to the next
+// queued one (2026-08-05 wedge fix) rather than waiting forever, so a call
+// abandoned by that timeout can still be running here in the background,
+// sharing these same process-global window/document with whatever call is
+// now actually active. If the abandoned call's promise eventually settles,
+// its `finally` must not blindly restore globals out from under the call
+// that superseded it: `generation` tags each call, and only the call that
+// is still the most-recently-started one is allowed to write globals back.
+let activeGeneration = 0;
+
 export async function withEnvironment<T>(fn: () => Promise<T>): Promise<T> {
+  const generation = ++activeGeneration;
   const oldWindow = global.window;
   const oldDocument = global.document;
   const oldMutationObserver = (global as Record<string, unknown>).MutationObserver;
@@ -350,9 +361,13 @@ export async function withEnvironment<T>(fn: () => Promise<T>): Promise<T> {
 
     return await fn();
   } finally {
-    setProperty(global, 'window', oldWindow);
-    setProperty(global, 'document', oldDocument);
-    setProperty(global, 'MutationObserver', oldMutationObserver);
-    setProperty(global, 'CSSStyleSheet', oldCSSStyleSheet);
+    // A call that lost the timeout race and is only settling now must not
+    // stomp on whatever a later, still-active call has since installed.
+    if (generation === activeGeneration) {
+      setProperty(global, 'window', oldWindow);
+      setProperty(global, 'document', oldDocument);
+      setProperty(global, 'MutationObserver', oldMutationObserver);
+      setProperty(global, 'CSSStyleSheet', oldCSSStyleSheet);
+    }
   }
 }
