@@ -22,6 +22,14 @@ interface RenderBody {
 // pure function of (diagram, config, outputFormat) for every other type.
 const NON_CACHEABLE_DIAGRAM_TYPES = new Set(['gantt']);
 
+// Node rejects header values containing any character outside \t, \x20-\x7e,
+// \x80-\xff (ERR_INVALID_CHAR) — e.g. an em dash. Warning text is meant to be
+// human-readable, not header-safe by construction, so strip anything outside
+// that set rather than trust every warning source to stay ASCII forever.
+function sanitizeHeaderValue(value: string): string {
+  return value.replace(/[^\t\x20-\x7e\x80-\xff]/g, '?');
+}
+
 export function renderRoute(
   app: FastifyInstance,
   bridge: MermaidBridge,
@@ -69,8 +77,16 @@ export function renderRoute(
         // JSON responses carry warnings inline; raw SVG/PNG bodies can't hold a
         // structured field, so the same information goes out as a header. Both
         // forms are additive — omitted entirely when there's nothing to report.
+        // A diagnostic must never be able to fail the render it's diagnosing:
+        // sanitize against Node's header-value charset, and if setting the
+        // header still somehow throws, drop it rather than 500 the request.
         if (result.warnings?.length) {
-          reply.header('X-Mermaid-Warnings', result.warnings.join('; '));
+          try {
+            reply.header('X-Mermaid-Warnings', sanitizeHeaderValue(result.warnings.join('; ')));
+          } catch {
+            // Warnings still surface in the JSON body on svg-string; for raw
+            // svg/png the render itself is unaffected either way.
+          }
         }
 
         if (outputFormat === 'svg-string') {

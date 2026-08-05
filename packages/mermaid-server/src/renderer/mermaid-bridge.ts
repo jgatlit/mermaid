@@ -160,7 +160,7 @@ const LITERAL_NEWLINE_WARNING =
 
 function strippedConfigWarnings(strippedKeys: string[]): string[] {
   return strippedKeys.map(
-    (key) => `Config key "${key}" was removed — not permitted in this server context.`
+    (key) => `Config key "${key}" was removed - not permitted in this server context.`
   );
 }
 

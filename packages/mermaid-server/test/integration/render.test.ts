@@ -136,6 +136,40 @@ describe('POST /api/v1/render', () => {
     expect(JSON.parse(res.payload).warnings).toBeUndefined();
   });
 
+  // P0 regression (2026-08-05 eval fan-out): the stripped-config warning text
+  // contained an em dash (U+2014), a character outside Node's allowed HTTP
+  // header-value charset (\t, \x20-\x7e, \x80-\xff). Setting X-Mermaid-Warnings
+  // with that text threw ERR_INVALID_CHAR, turning a benign strip into a 500 —
+  // on exactly the keys a stock mermaid.initialize() config object contains.
+  const BLOCKED_CONFIG_PROBES: [string, unknown][] = [
+    ['securityLevel', 'loose'],
+    ['logLevel', 'debug'],
+    ['startOnLoad', true],
+    ['secure', ['foo']],
+    ['maxTextSize', 9999],
+  ];
+
+  for (const outputFormat of ['svg', 'svg-string', 'png'] as const) {
+    for (const [key, value] of BLOCKED_CONFIG_PROBES) {
+      it(`strips "${key}" without crashing (outputFormat=${outputFormat})`, async () => {
+        const res = await app.inject({
+          method: 'POST',
+          url: '/api/v1/render',
+          payload: { diagram: 'graph TD; A-->B', config: { [key]: value }, outputFormat },
+        });
+        expect(res.statusCode).toBe(200);
+        if (outputFormat === 'svg-string') {
+          const body = JSON.parse(res.payload);
+          expect(body.warnings).toBeDefined();
+          expect(body.warnings.join(' ')).toContain(key);
+        } else {
+          expect(res.headers['x-mermaid-warnings']).toBeDefined();
+          expect(res.headers['x-mermaid-warnings']).toContain(key);
+        }
+      });
+    }
+  }
+
   it('renders sequence diagram', async () => {
     const res = await app.inject({
       method: 'POST',
