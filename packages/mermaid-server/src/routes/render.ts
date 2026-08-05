@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import type { MermaidBridge, RenderResult } from '../renderer/mermaid-bridge.js';
+import { rewriteRenderId } from '../renderer/mermaid-bridge.js';
 import type { BoundedCache } from '../renderer/cache.js';
 import { cacheKey } from '../renderer/cache.js';
 import type { ServerConfig } from '../config.js';
@@ -74,7 +75,7 @@ export function renderRoute(
       const key = cacheKey({ diagram, config: config ?? {}, outputFormat });
       const cached = cache.get(key);
       try {
-        const result = cached ?? (await bridge.render(diagram, config));
+        const result = cached ? rewriteRenderId(cached) : await bridge.render(diagram, config);
         if (!cached && !NON_CACHEABLE_DIAGRAM_TYPES.has(result.diagramType)) {
           cache.set(key, result);
         }

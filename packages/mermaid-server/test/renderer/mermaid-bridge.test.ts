@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll } from 'vitest';
-import { MermaidBridge } from '../../src/renderer/mermaid-bridge.js';
+import { MermaidBridge, rewriteRenderId } from '../../src/renderer/mermaid-bridge.js';
 
 describe('MermaidBridge', () => {
   let bridge: MermaidBridge;
@@ -123,6 +123,31 @@ describe('MermaidBridge', () => {
 
       const withoutHtmlLabels = await bridge.render('graph TD; A-->B', { theme: 'dark' });
       expect(withoutHtmlLabels.warnings).toBeUndefined();
+    });
+  });
+
+  describe('rewriteRenderId', () => {
+    it('replaces every occurrence of the root id with a fresh, distinct one', async () => {
+      const original = await bridge.render('flowchart TD\n  A-->B');
+      const originalId = /^<svg[^>]*\sid="([^"]+)"/.exec(original.svg)?.[1];
+      expect(originalId).toBeDefined();
+
+      const rewritten = rewriteRenderId(original);
+      const rewrittenId = /^<svg[^>]*\sid="([^"]+)"/.exec(rewritten.svg)?.[1];
+
+      expect(rewrittenId).toBeDefined();
+      expect(rewrittenId).not.toBe(originalId);
+      expect(rewritten.svg).not.toContain(originalId!);
+      expect(rewritten.svg.split(rewrittenId!).length).toBeGreaterThan(1);
+      // structurally identical apart from the id
+      expect(rewritten.svg.replaceAll(rewrittenId!, 'X')).toBe(
+        original.svg.replaceAll(originalId!, 'X')
+      );
+    });
+
+    it('is a no-op when the svg has no root id attribute', () => {
+      const result = { svg: '<svg></svg>', diagramType: 'flowchart' };
+      expect(rewriteRenderId(result)).toEqual(result);
     });
   });
 });

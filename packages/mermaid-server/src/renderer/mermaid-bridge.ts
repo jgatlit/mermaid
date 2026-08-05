@@ -175,6 +175,36 @@ function strippedConfigWarnings(strippedKeys: string[]): string[] {
 
 let renderCounter = 0;
 
+function nextRenderId(): string {
+  return `mermaid-server-${++renderCounter}`;
+}
+
+// Every element mermaid emits inside a rendered SVG is prefixed with the root
+// id passed to mermaid.render() - not just the root <svg id="...">, but style
+// selectors, markers, node/edge ids, and defs. The id is never split or
+// transformed en route, so it always appears as this exact literal substring;
+// replacing every occurrence of it is sufficient to re-key a whole cached SVG
+// under a fresh id without a full re-render.
+const SVG_ROOT_ID = /^<svg[^>]*\sid="([^"]+)"/;
+
+// render.ts's cache stores one RenderResult per (diagram, config, outputFormat)
+// key and returns it verbatim on every HIT - including the `mermaid-server-N`
+// id baked into the SVG at the original MISS. Two callers who render the same
+// diagram+config and embed both responses on one page would get a duplicate
+// DOM id. Cache HITs route through this first, swapping in a fresh
+// process-unique id (same counter as a real render, so ids never collide with
+// each other) so every response - cached or not - is safe to embed alongside
+// any other.
+export function rewriteRenderId(result: RenderResult): RenderResult {
+  const match = SVG_ROOT_ID.exec(result.svg);
+  if (!match) {
+    return result;
+  }
+  const [, oldId] = match;
+  const newId = nextRenderId();
+  return { ...result, svg: result.svg.split(oldId).join(newId) };
+}
+
 export class MermaidBridge {
   private queue = new RenderQueue();
   private mermaidModule: MermaidModule | null = null;
@@ -274,7 +304,7 @@ export class MermaidBridge {
     return this.queue.run(() =>
       withEnvironment(async () => {
         const mermaid = this.getMermaid();
-        const id = `mermaid-server-${++renderCounter}`;
+        const id = nextRenderId();
         const warnings: string[] = [];
         let strippedKeys: string[] = [];
         let effectiveConfig: MermaidConfig = this.defaultConfig;

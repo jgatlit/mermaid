@@ -337,7 +337,17 @@ describe('POST /api/v1/render', () => {
 
       expect(first.headers['x-cache']).toBe('MISS');
       expect(second.headers['x-cache']).toBe('HIT');
-      expect(second.payload).toBe(first.payload);
+      // Re-keyed under a fresh root id on the HIT (see the id-collision
+      // regression test below), so compare parsed svg with warnings, not the
+      // raw payload.
+      const firstBody = JSON.parse(first.payload);
+      const secondBody = JSON.parse(second.payload);
+      expect(secondBody.diagramType).toBe(firstBody.diagramType);
+      expect(secondBody.warnings).toEqual(firstBody.warnings);
+      const firstId = firstBody.svg.match(/^<svg[^>]*\sid="([^"]+)"/)?.[1];
+      const secondId = secondBody.svg.match(/^<svg[^>]*\sid="([^"]+)"/)?.[1];
+      expect(secondId).not.toBe(firstId);
+      expect(secondBody.svg.replaceAll(secondId, 'X')).toBe(firstBody.svg.replaceAll(firstId, 'X'));
     });
 
     it('does not confuse two different configs for the same diagram (no false HIT)', async () => {
@@ -414,7 +424,45 @@ describe('POST /api/v1/render', () => {
 
       expect(first.headers['x-cache']).toBe('MISS');
       expect(second.headers['x-cache']).toBe('HIT');
-      expect(second.payload).toBe(first.payload);
+      // Same rendered content, but re-keyed under a fresh root id on the HIT
+      // (see the 'does not return the same root id on a cache HIT' test below)
+      // so the two payloads are structurally equal, not byte-identical.
+      const firstId = /^<svg[^>]*\sid="([^"]+)"/.exec(first.payload)?.[1];
+      const secondId = /^<svg[^>]*\sid="([^"]+)"/.exec(second.payload)?.[1];
+      expect(firstId).toBeDefined();
+      expect(secondId).toBeDefined();
+      expect(secondId).not.toBe(firstId);
+      expect(second.payload.replaceAll(secondId!, 'X')).toBe(
+        first.payload.replaceAll(firstId!, 'X')
+      );
+    });
+
+    it('does not return the same root id on a cache HIT as the original MISS (id-collision regression)', async () => {
+      const diagram = 'flowchart TD\n    X-->Y';
+      const first = await app.inject({
+        method: 'POST',
+        url: '/api/v1/render',
+        payload: { diagram },
+      });
+      const second = await app.inject({
+        method: 'POST',
+        url: '/api/v1/render',
+        payload: { diagram },
+      });
+      const third = await app.inject({
+        method: 'POST',
+        url: '/api/v1/render',
+        payload: { diagram },
+      });
+
+      expect(first.headers['x-cache']).toBe('MISS');
+      expect(second.headers['x-cache']).toBe('HIT');
+      expect(third.headers['x-cache']).toBe('HIT');
+
+      const ids = [first, second, third].map(
+        (res) => /^<svg[^>]*\sid="([^"]+)"/.exec(res.payload)?.[1]
+      );
+      expect(new Set(ids).size).toBe(3); // all three responses get distinct ids
     });
   });
 });
