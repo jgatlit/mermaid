@@ -12,7 +12,7 @@ fork of upstream mermaid so it can import the library directly.
 
 - **Package**: `packages/mermaid-server/` inside `jgatlit/mermaid` (fork of `mermaid-js/mermaid`)
 - **Public URL**: `https://chart.chem.dev` · **local**: `http://localhost:3001`
-- **mermaid version**: 11.12.2 (`GET /api/v1/health` reports it)
+- **mermaid version**: 11.16.0 as of 2026-08-05 (`GET /api/v1/health` now resolves this from the installed package rather than a literal — it lied for months before that, do not trust older quotes of it)
 - **Repo remotes**: `fork` → `git@github.com:jgatlit/mermaid.git`, `origin` → upstream mermaid-js
 - **Branch**: `develop`
 
@@ -53,20 +53,38 @@ test/
   renderer/ integration/ e2e/ storage/ errors/
 ```
 
-### Defaults that are hardcoded, not configurable
+### Defaults — and which of them a caller can actually override
 
 `mermaid-bridge.ts` (~line 45):
 
 ```ts
-securityLevel: 'strict',
-htmlLabels: false,        // ← server-wide. Callers cannot turn this on.
-gantt: { useWidth: 960 },
+securityLevel: 'strict',   // BLOCKED key — stripped from caller config, and warns
+htmlLabels: false,         // DEFAULT ONLY — `...config` spreads after, so callers CAN override
+gantt: { useWidth: 960 },  // default, overridable
 ```
 
 `htmlLabels: false` is why flowcharts emit SVG `<text>`/`<tspan>` rather than
-`<foreignObject>`. A caller passing `htmlLabels: true` is silently overridden. Separately,
+`<foreignObject>` **by default**.
+
+⚠️ **CORRECTED 2026-08-05 — an earlier version of this primer said "a caller passing
+`htmlLabels: true` is silently overridden." THAT WAS WRONG.** These are DEFAULTS, and
+`...config` is spread AFTER them, so caller config WINS. `htmlLabels` is NOT in
+`BLOCKED_CONFIG_KEYS`. Verified live:
+
+| config                               | `<foreignObject>` |                      `<tspan>` |
+| ------------------------------------ | ----------------: | -----------------------------: |
+| `{}`                                 |                 0 |                              7 |
+| `{"htmlLabels": true}`               |             **3** |                          **0** |
+| `{"flowchart":{"htmlLabels": true}}` |                 0 | 7 (nested form is a DEAD PATH) |
+
+This matters: `<foreignObject>` **does not render inside an `<img>`-loaded SVG**, which is how
+markdown and most docs embed these. A caller who enables it gets coloured boxes with no words,
+200 OK, no warning. Tracked as `tsk_beea3c5aadcd4c579ce8`.
+
 `BLOCKED_CONFIG_KEYS` (`securityLevel`, `secure`, `maxTextSize`, `logLevel`, `startOnLoad`)
-are **stripped from caller config without warning**.
+ARE stripped from caller config — and **as of 2026-08-05 they now warn** (`warnings[]` on the
+JSON path, `X-Mermaid-Warnings` header on raw-SVG and PNG paths). The earlier "stripped
+without warning" note is obsolete.
 
 ## Deploy — there is no build step
 
@@ -95,13 +113,19 @@ against the live endpoint after every restart.
 (SSHFS). Editing either is editing the same file. PM2's `cwd` is the **VPS-native** path;
 use `ssh vps` for `pm2` and `git`, and either path for edits.
 
-## Repo convention: ops docs live untracked
+## Repo convention: ops docs are TRACKED (changed 2026-08-05)
 
-`ISSUE-*.md`, `ecosystem.config.cjs`, `setup-caddy.sh`, `fix-*.sh` are all **untracked**
-(`git status` shows them as `??`) and deliberately so — this is a fork of upstream mermaid
-and committing local ops files onto `develop` would pollute the diff against `origin`.
-Keep new operational docs untracked here. If something needs to be durable, file it as an
-issue on `jgatlit/mermaid` and/or push it to nobox-vault.
+⚠️ **This section previously said these files live untracked. That is no longer true.**
+`_AGENT_PRIMER.md`, `ISSUE-*.md`, `ecosystem.config.cjs`, `setup-caddy.sh` are now all
+**tracked** and committed on `develop`. The earlier rationale — that committing local ops
+files onto a fork of upstream mermaid would pollute the diff against `origin` — was
+outweighed by the practical cost: an untracked operational doc has no history, no review,
+and silently diverges from the code it describes.
+
+Practical consequence: **edits to these files are now ordinary uncommitted changes** and
+will sit dirty in a tree that is also the deploy unit. Commit them like any other change.
+Durable cross-repo records still belong in nobox-vault; this is for repo-local operational
+context.
 
 ## Geometry status, as of 2026-08-04
 
@@ -113,22 +137,34 @@ Read `ISSUE-multiline-label-measurement.md` before making any layout claim.
 command-aware, and reports **zero bounds for empty text and empty containers**. Node
 heights scale with row count and every diagram type bounds its own content
 (`uncovered = 0px`). Closes the multi-line label bug, `ISSUE-viewbox-undersize.md`, and
-issue #9. **96 tests.**
+issue #9. **170 tests across 15 files** as of 2026-08-05 (was 87 before this work began).
 
 The empty-bounds one is the subtle one: mermaid measures an edge label through its
 `<text>`, not the wrapping `<g>`, so an unlabelled edge's empty `<text>` hit the 100×100
 fallback and dagre reserved a full label of rank space for nothing. An _empty_ edge label
-cost more than a real one (gap 250 vs 178) until this landed; it is now 150.
+cost more than a real one (gap 250 vs 178) until this landed.
+
+⚠️ **The absolute gap numbers have since MOVED.** After the 11.13.0→11.16.0 sync the plain-edge
+gap is **104** and the labelled-edge gap **132** (they were 150 / 178). Both dropped by 46px;
+the 28px differential and the `empty < labelled` invariant both survived. Attribution to the
+sync specifically is probable but NOT isolated — five changes landed between the two builds
+measured. **Assert the RELATIONSHIP (empty must cost less than labelled), not the absolutes** —
+the absolutes move with every upstream sync and will make a regression test lie.
 
 **Still open:**
 
-1. **`\n` in a label renders as literal `\` + `n`.** `<br/>` is the only working
-   line-break form. Undocumented in `REFERENCE.md`.
-2. **2+ markdown list items in a wrapping label → `500`**, marker-agnostic (`+`/`-`/`*`),
-   and `/api/v1/parse` reports `valid: true` for the same payload. Should be a `422`.
-3. **`mindmap` → `Cannot read properties of undefined (reading 'h')`** — unrelated,
-   long-standing.
-4. **`CHAR_WIDTH = 8` approximates font metrics**, so layouts come out **narrower** than a
+1. ~~`\n` renders literally~~ **FIXED 2026-08-05** — literal `\n` is now normalised to a
+   line break and renders identically to `<br/>`, and it WARNS (`warnings[]` / header).
+2. ~~2+ markdown list items → 500~~ **FIXED 2026-08-05** — renders 200 with label text and
+   markers intact.
+3. **`mindmap` → `Cannot read properties of undefined (reading 'h')`** — still open. Part of a
+   MISSING-JSDOM-GLOBAL FAMILY, all the same one-line class of fix:
+   `CSSStyleSheet` (fixed, 47bca6d77) · `screen` (c4 diagrams, still 500) ·
+   `Image` (flowchart `img` node-shape, still 500). Worth landing together.
+4. **A single unbroken ~50k-char label WEDGES the process** — event loop blocks, socket
+   accepts but never services, `/health` hangs rather than reporting degraded. The 50k guard
+   counts TOTAL characters; the hazard is one un-wrappable token. See `tsk_4b761e409d444d2096e5`.
+5. **`CHAR_WIDTH = 8` approximates font metrics**, so layouts come out **narrower** than a
    real browser (~0.50–0.64× mermaid-cli width on the Lane B set). Height overshoot is now
    only 1.06–1.61×. Complete and correctly bounded, but not pixel-equivalent to Chrome.
    This is the next lever if proportions ever need to match a browser.
@@ -160,7 +196,8 @@ curl -s -X POST $BASE/api/v1/render -H 'Content-Type: application/json' \
 … | grep -c foreignObject   # expect 0
 ```
 
-Run `npx vitest run` in this package (**96 tests, ~6s**). The suite had _no_ multi-row
+Run `npx vitest run` in this package (**170 tests / 15 files, ~6s** as of 2026-08-05 — count
+this yourself rather than trusting this line, it moves). The suite had _no_ multi-row
 label fixture until 2026-08-04 — that gap is exactly what let #7 be closed while still
 broken. Thirteen geometry fixtures now guard it. Add one with any layout change.
 
