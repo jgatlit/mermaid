@@ -9,6 +9,7 @@ import intersectRect from '../rendering-elements/intersect/intersect-rect.js';
 import createLabel from './createLabel.js';
 import { createRoundedRectPathD } from './shapes/roundedRectPath.ts';
 import { styles2String, userNodeOverrides } from './shapes/handDrawnShapeStyles.js';
+import { swimlane } from './clusters/swimlane.js';
 
 const rect = async (parent, node) => {
   log.info('Creating subgraph rect for ', node.id, node);
@@ -438,7 +439,12 @@ const divider = (parent, node) => {
     rect = shapeSvg.insert(() => roughOuterNode, ':first-child');
   } else {
     rect = outerRectG.insert('rect', ':first-child');
-    const outerRectClass = 'divider';
+    let outerRectClass = 'outer';
+    if (node.look === 'neo') {
+      outerRectClass = 'divider';
+    } else {
+      outerRectClass = 'divider';
+    }
 
     // center the rect around its coordinate
     rect
@@ -471,6 +477,7 @@ const shapes = {
   noteGroup,
   divider,
   kanbanSection,
+  swimlane,
 };
 
 let clusterElems = new Map();
