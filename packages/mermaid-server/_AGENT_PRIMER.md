@@ -157,10 +157,14 @@ the absolutes move with every upstream sync and will make a regression test lie.
    line break and renders identically to `<br/>`, and it WARNS (`warnings[]` / header).
 2. ~~2+ markdown list items → 500~~ **FIXED 2026-08-05** — renders 200 with label text and
    markers intact.
-3. **`mindmap` → `Cannot read properties of undefined (reading 'h')`** — still open. Part of a
-   MISSING-JSDOM-GLOBAL FAMILY, all the same one-line class of fix:
-   `CSSStyleSheet` (fixed, 47bca6d77) · `screen` (c4 diagrams, still 500) ·
-   `Image` (flowchart `img` node-shape, still 500). Worth landing together.
+3. **`mindmap` → `Cannot read properties of undefined (reading 'h')`** — still open (confirmed
+   live 2026-08-05, HTTP 500, same error). Part of a MISSING-JSDOM-GLOBAL FAMILY:
+   `CSSStyleSheet` (fixed, 47bca6d77) · `screen` (c4 diagrams, fixed PR #19, d909243b1 —
+   confirmed live: c4 now renders 200 with valid viewBox) · `Image` (flowchart `img`
+   node-shape, fixed PR #19, same commit — `MockImage` wired in `environment.ts`).
+   mindmap's specific missing global has not been identified yet; same investigative
+   method that found the other three should apply. Not attempted this session — scoped
+   as follow-up, not a quick land-together item like the other two turned out to be.
 4. **A single unbroken ~50k-char label WEDGES the process** — event loop blocks, socket
    accepts but never services, `/health` hangs rather than reporting degraded. The 50k guard
    counts TOTAL characters; the hazard is one un-wrappable token. See `tsk_4b761e409d444d2096e5`.
@@ -174,9 +178,18 @@ the absolutes move with every upstream sync and will make a regression test lie.
 Diagram-type guidance predating 2026-08-04 ("prefer sequenceDiagram", "flowcharts >3 nodes
 have broken aspect ratios", "LR layouts stack vertically") was largely a symptom of the
 geometry bugs above and is now **stale — re-test before trusting it**. `stateDiagram` and
-`erDiagram` in particular got materially shorter. Still genuinely broken: `mindmap`,
-`timeline`, `radar`, `quadrantChart`. The older matrix lives in the
-`Documents/noboxAI/SecondAct` project memory.
+`erDiagram` in particular got materially shorter.
+
+**"Still genuinely broken" — corrected 2026-08-05, live-checked against `chart.chem.dev`:**
+only `mindmap` (HTTP 500, confirmed above) is actually broken today. `timeline`, `radar`, and
+`quadrantChart` each render HTTP 200 with a non-degenerate, positive-area SVG as of this
+check — this line was stale, most likely superseded by the 6819cbc52/10d78bb7b geometry
+fixes and/or the 11.13.0→11.16.0 sync. **This does not mean their geometry is correct** —
+it means they don't crash and aren't degenerate. No tooling exists yet (tight per-type
+geometry assertions, or a diff against a `mermaid-cli`-rendered reference) to tell "renders"
+from "renders right" for these three, the way 13 fixtures now do for flowchart. Building
+that tooling is a separate, larger effort — not attempted this session. The older matrix
+lives in the `Documents/noboxAI/SecondAct` project memory.
 
 ## Verification protocol
 
