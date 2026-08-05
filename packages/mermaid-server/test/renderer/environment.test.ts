@@ -39,6 +39,33 @@ describe('withEnvironment', () => {
     expect(global.window).toBe(originalWindow);
   });
 
+  it('exposes CSSStyleSheet as a bare global (mermaid core calls `new CSSStyleSheet()` unconditionally)', async () => {
+    let ctorType: string | undefined;
+    let instanceWorks = false;
+
+    await withEnvironment(() => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- exercising the raw global exactly as mermaid core does
+      const CSSStyleSheetCtor = (global as any).CSSStyleSheet;
+      ctorType = typeof CSSStyleSheetCtor;
+      const sheet = new CSSStyleSheetCtor();
+      sheet.insertRule(':root { --x: 1 }', 0);
+      instanceWorks = true;
+    });
+
+    expect(ctorType).toBe('function');
+    expect(instanceWorks).toBe(true);
+  });
+
+  it('restores CSSStyleSheet after callback completes', async () => {
+    const original = (global as Record<string, unknown>).CSSStyleSheet;
+
+    await withEnvironment(() => {
+      // inside: CSSStyleSheet is JSDOM's
+    });
+
+    expect((global as Record<string, unknown>).CSSStyleSheet).toBe(original);
+  });
+
   it('patches getBBox on SVG elements', async () => {
     await withEnvironment(() => {
       const rect = global.document.createElementNS('http://www.w3.org/2000/svg', 'rect');

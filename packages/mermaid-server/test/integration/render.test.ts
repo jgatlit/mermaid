@@ -53,6 +53,25 @@ describe('POST /api/v1/render', () => {
     expect(JSON.parse(res.payload).svg).toContain('<svg');
   });
 
+  // Regression: mermaid core's createCssStyles does `new CSSStyleSheet()`
+  // unconditionally (mermaidAPI.ts), which threw "CSSStyleSheet is not
+  // defined" in production even though the entire test suite passed —
+  // vitest's own jsdom test environment happens to expose it globally,
+  // masking that withEnvironment()'s hand-rolled JSDOM instance didn't.
+  it('renders successfully with themeCSS set (exercises createCssStyles/CSSStyleSheet)', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/render',
+      payload: {
+        diagram: 'graph TD; A-->B',
+        config: { themeCSS: '.node rect { fill: red; }' },
+        outputFormat: 'svg-string',
+      },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.payload).svg).toContain('<svg');
+  });
+
   it('returns 422 for invalid diagram', async () => {
     const res = await app.inject({
       method: 'POST',

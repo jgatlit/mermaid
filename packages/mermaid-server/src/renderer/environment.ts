@@ -217,6 +217,7 @@ export async function withEnvironment<T>(fn: () => Promise<T>): Promise<T> {
   const oldWindow = global.window;
   const oldDocument = global.document;
   const oldMutationObserver = (global as Record<string, unknown>).MutationObserver;
+  const oldCSSStyleSheet = (global as Record<string, unknown>).CSSStyleSheet;
 
   try {
     const dom = new JSDOM(BASE_HTML, {
@@ -340,11 +341,18 @@ export async function withEnvironment<T>(fn: () => Promise<T>): Promise<T> {
     setProperty(global, 'window', dom.window);
     setProperty(global, 'document', dom.window.document);
     setProperty(global, 'MutationObserver', undefined);
+    // mermaid's createCssStyles (mermaidAPI.ts) does `new CSSStyleSheet()`
+    // unconditionally, assuming a browser global — jsdom implements the
+    // constructor (insertRule/cssRules work; replaceSync doesn't, which
+    // mermaid itself already guards with a typeof check) but window
+    // properties aren't bare Node globals unless exposed like this.
+    setProperty(global, 'CSSStyleSheet', dom.window.CSSStyleSheet);
 
     return await fn();
   } finally {
     setProperty(global, 'window', oldWindow);
     setProperty(global, 'document', oldDocument);
     setProperty(global, 'MutationObserver', oldMutationObserver);
+    setProperty(global, 'CSSStyleSheet', oldCSSStyleSheet);
   }
 }
