@@ -17,6 +17,38 @@ function setProperty(obj: Record<string, unknown>, key: string, value: unknown):
   obj[key] = value;
 }
 
+// c4Renderer.ts reads screen.availWidth unconditionally to bound its shape
+// grid before wrapping to a new row. jsdom's own `window.screen.availWidth`
+// defaults to 0 (no real display), which is worse than not having `screen`
+// at all: rather than a clean error, it would silently force every C4 shape
+// onto its own row (any width check `>= 0` trips immediately). This mocks a
+// generous desktop-viewport width instead, so width-based wrapping only
+// kicks in where a real browser's would, leaving C4's own shape-count-per-row
+// config as the effective limit — matching this server's existing pattern of
+// overriding jsdom defaults with sensible values rather than trusting them
+// (see MOCKED_BBOX, gantt's useWidth in mermaid-bridge.ts).
+const MOCK_SCREEN = { availWidth: 1920 };
+
+// imageSquare.ts (flowchart `img`-shape nodes) does `img.src = node.img;
+// await img.decode()` where `node.img` is arbitrary, unauthenticated diagram
+// content. jsdom's real Image, combined with `resources: 'usable'` below,
+// would actually fetch that URL over the network — an SSRF vector (server
+// fetches whatever URL a caller's diagram names) and a new render-hang class
+// on top of the one RenderQueue's timeout already guards against (JSDOM's
+// resource fetch has no timeout of its own). This server has no real image
+// pipeline anyway — text width is already a CHAR_WIDTH approximation, not
+// real font metrics — so a synchronous, non-fetching mock is both the safer
+// and the more architecturally consistent choice.
+class MockImage {
+  src = '';
+  naturalWidth = MOCKED_BBOX.width;
+  naturalHeight = MOCKED_BBOX.height;
+  async decode(): Promise<void> {
+    // Deliberately not a real decode: no fetch, no network, resolves as soon
+    // as the microtask queue lets it. See class comment above.
+  }
+}
+
 /**
  * Visual text rows for an element.
  *
@@ -229,6 +261,8 @@ export async function withEnvironment<T>(fn: () => Promise<T>): Promise<T> {
   const oldDocument = global.document;
   const oldMutationObserver = (global as Record<string, unknown>).MutationObserver;
   const oldCSSStyleSheet = (global as Record<string, unknown>).CSSStyleSheet;
+  const oldScreen = (global as Record<string, unknown>).screen;
+  const oldImage = (global as Record<string, unknown>).Image;
 
   try {
     const dom = new JSDOM(BASE_HTML, {
@@ -358,6 +392,8 @@ export async function withEnvironment<T>(fn: () => Promise<T>): Promise<T> {
     // mermaid itself already guards with a typeof check) but window
     // properties aren't bare Node globals unless exposed like this.
     setProperty(global, 'CSSStyleSheet', dom.window.CSSStyleSheet);
+    setProperty(global, 'screen', MOCK_SCREEN);
+    setProperty(global, 'Image', MockImage);
 
     return await fn();
   } finally {
@@ -367,6 +403,8 @@ export async function withEnvironment<T>(fn: () => Promise<T>): Promise<T> {
       setProperty(global, 'window', oldWindow);
       setProperty(global, 'document', oldDocument);
       setProperty(global, 'MutationObserver', oldMutationObserver);
+      setProperty(global, 'screen', oldScreen);
+      setProperty(global, 'Image', oldImage);
       setProperty(global, 'CSSStyleSheet', oldCSSStyleSheet);
     }
   }
