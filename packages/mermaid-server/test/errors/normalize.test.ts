@@ -38,6 +38,26 @@ describe('normalizeError', () => {
     expect(result.statusCode).toBe(500);
   });
 
+  it('normalizes splitLineToFitWidth newline-in-label error as RENDER_ERROR, not INTERNAL_ERROR', () => {
+    // Thrown by mermaid core when markdown list markup expands into embedded
+    // newlines in a label wide enough to need word-wrapping. This is client
+    // input, not a server crash, but mermaid's parser accepts the diagram —
+    // the failure only surfaces during layout, so it isn't a PARSE_ERROR either.
+    const err = new Error('splitLineToFitWidth does not support newlines in the line');
+    const result = normalizeError(err);
+
+    expect(result.code).toBe('RENDER_ERROR');
+    expect(result.statusCode).toBe(422);
+  });
+
+  it('still normalizes an unrelated generic Error as INTERNAL_ERROR (no over-broad matching)', () => {
+    const result = normalizeError(
+      new TypeError("Cannot read properties of undefined (reading 'h')")
+    );
+    expect(result.code).toBe('INTERNAL_ERROR');
+    expect(result.statusCode).toBe(500);
+  });
+
   it('normalizes non-Error values', () => {
     const result = normalizeError('string error');
     expect(result.code).toBe('INTERNAL_ERROR');

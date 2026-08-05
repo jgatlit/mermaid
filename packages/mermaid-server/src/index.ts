@@ -3,7 +3,7 @@ import { loadConfig } from './config.js';
 
 async function main() {
   const config = loadConfig();
-  const app = await buildApp();
+  const app = await buildApp(config);
 
   try {
     await app.listen({ port: config.port, host: config.host });

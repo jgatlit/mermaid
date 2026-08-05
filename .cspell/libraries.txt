@@ -47,6 +47,7 @@ matplotlib
 mdbook
 Mermerd
 mkdocs
+napi
 Nextra
 nodenext
 npmjs
@@ -59,6 +60,7 @@ presetAttributify
 pyplot
 redmine
 rehype
+resvg
 roughjs
 rscratch
 shiki

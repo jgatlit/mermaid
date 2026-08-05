@@ -1,9 +1,10 @@
 import type { FastifyInstance } from 'fastify';
 import type { MermaidBridge } from '../renderer/mermaid-bridge.js';
+import type { ServerConfig } from '../config.js';
 
 const THEMES = ['default', 'dark', 'forest', 'neutral', 'base'];
 
-export function healthRoutes(app: FastifyInstance, bridge: MermaidBridge) {
+export function healthRoutes(app: FastifyInstance, bridge: MermaidBridge, config: ServerConfig) {
   const startTime = Date.now();
 
   app.get(
@@ -39,7 +40,7 @@ export function healthRoutes(app: FastifyInstance, bridge: MermaidBridge) {
         uptime: Math.floor((Date.now() - startTime) / 1000),
         capabilities: {
           svg: true,
-          png: false,
+          png: config.png.enabled,
           batch: true,
         },
       };

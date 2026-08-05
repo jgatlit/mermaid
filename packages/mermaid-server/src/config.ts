@@ -15,6 +15,9 @@ export interface ServerConfig {
   batch: {
     maxItems: number;
   };
+  cache: {
+    size: number;
+  };
 }
 
 export function loadConfig(): ServerConfig {
@@ -34,6 +37,11 @@ export function loadConfig(): ServerConfig {
     },
     batch: {
       maxItems: parseInt(process.env.BATCH_MAX_ITEMS ?? '50', 10),
+    },
+    cache: {
+      // Entries per cache (render and parse are cached separately, each
+      // capped at this size). 0 disables caching.
+      size: parseInt(process.env.MERMAID_CACHE_SIZE ?? '200', 10),
     },
   };
 }

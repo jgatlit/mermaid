@@ -12,6 +12,12 @@ export const diagramInput = {
       additionalProperties: true,
       description: 'Optional MermaidConfig overrides',
     },
+    ast: {
+      type: 'boolean' as const,
+      default: false,
+      description:
+        'Include the parsed Langium AST in the response (only /parse acts on this; supported for Langium-backed diagram types only, see astSupported in the response)',
+    },
   },
 };
 

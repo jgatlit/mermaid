@@ -1,6 +1,7 @@
 !viewbox
 # It should be viewBox
 # This file contains coding related terms
+Abnf
 ALPHANUM
 antiscript
 APPLYCLASS
@@ -31,6 +32,7 @@ CSSCLASS
 curv
 CYLINDEREND
 CYLINDERSTART
+cynefin
 DAGA
 datakey
 DEND
@@ -45,11 +47,13 @@ DOUBLECIRCLEEND
 DOUBLECIRCLESTART
 DQUOTE
 DSTART
+Ebnf
 edgesep
 EMPTYSTR
 enddate
 ERDIAGRAM
 eslint
+eventmodeling
 flatmap
 forwardable
 frontmatter
@@ -59,6 +63,7 @@ GENERICTYPE
 grammr
 graphtype
 halign
+IHDR
 iife
 interp
 introdcued

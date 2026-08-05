@@ -60,6 +60,23 @@ Response:
 }
 ```
 
+### Get PNG
+
+Request `png` format to get a rasterized image instead of SVG. Rendered in-process by
+[resvg](https://github.com/RazrFalcon/resvg) (via `@resvg/resvg-js`) directly from the
+generated SVG, no headless browser involved, consistent with the rest of this server.
+
+```bash
+curl -X POST $BASE/api/v1/render \
+  -H "Content-Type: application/json" \
+  -d '{"diagram": "graph TD\n    A-->B", "outputFormat": "png"}' \
+  -o diagram.png
+```
+
+Returns raw PNG bytes (`Content-Type: image/png`). Disabled servers (`PNG_ENABLED=false`)
+return HTTP 400 with `code: "PNG_DISABLED"` instead of silently falling back to SVG. Check
+`capabilities.png` on [`/api/v1/health`](#4-check-server-status) before relying on it.
+
 ### Apply a theme
 
 ```bash
@@ -112,6 +129,112 @@ curl -X POST $BASE/api/v1/render \
   }'
 ```
 
+### Line breaks in labels
+
+Use `<br/>` for line breaks inside node/edge labels — it's the only form
+mermaid renders as an actual line break (`htmlLabels: false`, the server
+default, has no other mechanism). A literal `\n` doesn't need to be avoided:
+**flowchart labels normalize it to `<br/>` automatically**, since the two
+characters `\`+`n` rendering literally in the output is never what a caller
+wants. The rewrite only touches quoted label text inside flowchart diagrams —
+it never touches the diagram's real newline-delimited statement structure, and
+it does not apply to other diagram types (a sequenceDiagram Note or a gantt
+task name keeps whatever `\n` it was given, since those aren't a documented
+bug the way flowchart labels are).
+
+This is a content rewrite, so it's never silent: the response carries a
+`warnings` array (JSON output formats) or an `X-Mermaid-Warnings` header (raw
+SVG/PNG) whenever it fires.
+
+```bash
+curl -X POST $BASE/api/v1/render \
+  -H "Content-Type: application/json" \
+  -d '{"diagram": "graph TD\n    A[\"Line one<br/>Line two\"] --> B"}'
+```
+
+```bash
+# literal \n gets normalized, and the response says so
+curl -X POST $BASE/api/v1/render \
+  -H "Content-Type: application/json" \
+  -d '{"diagram": "graph TD\n    A[\"Line one\\nLine two\"] --> B", "outputFormat": "svg-string"}'
+```
+
+```json
+{
+  "svg": "<svg ...>...</svg>",
+  "diagramType": "flowchart-v2",
+  "warnings": [
+    "Literal \"\\n\" in a label was converted to <br/> (the only line-break form flowchart labels render). Escape it as \"\\\\n\" if you actually want the two characters \\ and n."
+  ]
+}
+```
+
+Want a literal backslash followed by the letter n instead of a line break?
+Escape the backslash in your JSON payload: `\\\\n`.
+
+### Silent-stripping warnings, generally
+
+`BLOCKED_CONFIG_KEYS` stripping (see [Configuration Reference](#8-configuration-reference))
+gets the same treatment — if your `config` included one of those keys, the
+response carries a warning naming it, instead of silently dropping it.
+
+### Caching
+
+`/render` and `/parse` share an in-memory, per-process cache. A request is
+looked up by a stable hash of its `diagram` text, its (canonicalized —
+object key order does not matter) `config`, and, for `/render`, its
+`outputFormat` (and for `/parse`, whether `ast` was requested). Every
+response carries an `X-Cache` header: `MISS` on the first request for a
+given key, `HIT` on any exact repeat.
+
+```bash
+curl -sD - -o /dev/null -X POST $BASE/api/v1/render \
+  -H "Content-Type: application/json" \
+  -d '{"diagram": "graph TD\n    A-->B"}' | grep -i x-cache
+# X-Cache: MISS
+
+curl -sD - -o /dev/null -X POST $BASE/api/v1/render \
+  -H "Content-Type: application/json" \
+  -d '{"diagram": "graph TD\n    A-->B"}' | grep -i x-cache
+# X-Cache: HIT
+```
+
+Each cache is a bounded, in-memory LRU (`render` and `parse` are capped
+independently), sized via `MERMAID_CACHE_SIZE` (default 200 entries each;
+`0` disables caching). The cache is per-process — it is not shared across
+PM2 workers or server restarts, and is never persisted to disk.
+
+**Rendering is not a pure function of `(diagram, config)` for every diagram
+type**, and caching assumes it is. Two things were found to break that
+assumption while building this cache:
+
+- **Gantt diagrams are wall-clock dependent, not just diagram-text
+  dependent.** `gantt.todayMarker` defaults to on (only an explicit `'off'`
+  disables it), and the marker's `x` position is computed from `new Date()`
+  at render time, not from any date in the diagram text. A cached gantt SVG
+  would silently show yesterday's "today" line on any later day, so **gantt
+  output is never cached** — it always re-renders live, even on repeat
+  identical requests (`X-Cache: MISS` every time). Everything else caches
+  normally.
+- **Some diagram types embed a monotonically-increasing or
+  `Math.random()`-derived id that is not part of the diagram's visual
+  content**, e.g. the server's own root `id="mermaid-server-N"`, sequence
+  diagram actor ids (`actor1`, `actor2`, ...), and — genuinely random, via
+  `Math.random()` in `packages/mermaid/src/utils.ts` — state diagram
+  concurrency-divider ids and block diagram spacer/root ids. A cache HIT
+  returns the exact bytes of whichever render produced the entry, including
+  whichever of these ids that render happened to generate — geometry and
+  visual content are unaffected, but this means two cached responses for the
+  identical `(diagram, config)` will carry **identical** internal ids rather
+  than fresh ones. This is actually more predictable than the uncached
+  behavior (which mints different ids on every call for the same input), but
+  if you embed the _same_ diagram+config more than once in the _same_ HTML
+  document, those internal ids will now collide with each other where they
+  previously wouldn't have. Namespace/rewrite ids client-side if you rely on
+  per-embed uniqueness within a single page.
+
+Error responses (422/500) are never cached.
+
 ### Error response
 
 Invalid diagram text returns HTTP 422:
@@ -134,7 +257,7 @@ Invalid diagram text returns HTTP 422:
 **Request type:**
 
 ```typescript
-{ diagram: string; config?: MermaidConfig; outputFormat?: "svg" | "svg-string" }
+{ diagram: string; config?: MermaidConfig; outputFormat?: "svg" | "svg-string" | "png" }
 ```
 
 **Response types:**
@@ -146,6 +269,8 @@ Invalid diagram text returns HTTP 422:
   svg: string;
   diagramType: string;
 }
+// outputFormat: "png" → raw PNG bytes, Content-Type: image/png
+// (400 PNG_DISABLED if config.png.enabled is false)
 ```
 
 ---
@@ -153,6 +278,19 @@ Invalid diagram text returns HTTP 422:
 ## 2. Validate Before Rendering
 
 Check syntax without generating SVG. Faster and cheaper.
+
+**Contract: syntax only.** `/parse` runs mermaid's grammar parser and nothing
+else — it never lays out labels. A diagram can be `valid: true` here and still
+fail on `/render` with a `RENDER_ERROR` (see [Error Handling](#9-error-handling))
+if its _content_ can't be laid out, even though its _syntax_ is fine. Known
+example: 2+ markdown list items in a node label that's wide enough to
+word-wrap. There is no cheaper way to catch this — the failure only exists
+once real layout runs, which is exactly what `/render` (and not `/parse`) does.
+If you need a hard guarantee a diagram will render, **use [`/batch`](#6-batch-operations)
+as your pre-flight**, not `/parse` — it always returns HTTP 200 with a per-item
+`success` flag, so validate-then-render collapses into one call with no gap
+between checking and rendering. A single-item `/batch` call is the correct way
+to "just try it safely."
 
 ```bash
 curl -X POST $BASE/api/v1/parse \
@@ -214,10 +352,71 @@ Response:
 
 Note: the `config` in the response is the diagram's parsed frontmatter, not the config you sent.
 
+### With the parsed AST (`ast: true`)
+
+Some diagram types are backed by the Langium-based `@mermaid-js/parser` package rather
+than a Jison grammar, and expose a structured AST. Add `"ast": true` to get it:
+
+```bash
+curl -X POST $BASE/api/v1/parse \
+  -H "Content-Type: application/json" \
+  -d '{"diagram": "pie\n\"A\": 40\n\"B\": 60", "ast": true}'
+```
+
+Response:
+
+```json
+{
+  "valid": true,
+  "diagramType": "pie",
+  "config": {},
+  "astSupported": true,
+  "ast": {
+    "$type": "Pie",
+    "showData": false,
+    "sections": [
+      { "$type": "PieSection", "label": "A", "value": 40 },
+      { "$type": "PieSection", "label": "B", "value": 60 }
+    ]
+  }
+}
+```
+
+The AST is the raw Langium parse tree with its internal bookkeeping fields
+(`$container`, `$containerProperty`, `$containerIndex`, `$cstNode`, `$document`) stripped
+— those carry circular back-references and aren't JSON-serializable as-is. `$type` is
+kept since it identifies the node kind.
+
+For diagram types with no Langium AST (Jison-based — flowchart, sequence, class, state,
+er, gantt, and most others), the response omits `ast` and reports `astSupported: false`
+instead of erroring:
+
+```json
+{
+  "valid": true,
+  "diagramType": "flowchart-v2",
+  "config": {},
+  "astSupported": false
+}
+```
+
+`ast`/`astSupported` are only present in the response when the request includes
+`"ast": true`; omitting the flag (or passing `false`) reproduces the pre-existing response
+shape exactly.
+
+**Diagram types with a working AST**, as vendored in this repo's `@mermaid-js/parser`
+(`packages/parser`, v1.2.0 — not every upstream mermaid version supports the same set):
+`info`, `packet`, `pie`, `treeView`, `architecture`, `gitGraph`, `eventmodeling`, `radar`,
+`railroad`, `railroadEbnf`, `railroadAbnf`, `railroadPeg`, `treemap`, `wardley`, `cynefin`.
+Everything else (`flowchart`/`flowchart-v2`, `sequence`, `classDiagram`, `stateDiagram`,
+`er`, `gantt`, `quadrantChart`, `sankey`, `xychart`, `block`, `kanban`, `c4`,
+`requirement`, `journey`, `timeline`, `mindmap`, …) is Jison-based and always reports
+`astSupported: false`.
+
 **Request type:**
 
 ```typescript
-{ diagram: string; config?: MermaidConfig }
+{ diagram: string; config?: MermaidConfig; ast?: boolean }
 ```
 
 **Response type:**
@@ -227,6 +426,8 @@ Note: the `config` in the response is the diagram's parsed frontmatter, not the 
   valid: true;
   diagramType: string;
   config: object;
+  astSupported?: boolean; // present only when the request set ast: true
+  ast?: object;           // present only when astSupported is true
 }
 ```
 
@@ -293,11 +494,14 @@ curl $BASE/api/v1/health
   "uptime": 641,
   "capabilities": {
     "svg": true,
-    "png": false,
+    "png": true,
     "batch": true
   }
 }
 ```
+
+`capabilities.png` mirrors `config.png.enabled` (env `PNG_ENABLED`, default `true`); check
+it before requesting `outputFormat: "png"` on [`/api/v1/render`](#1-render-a-diagram).
 
 ### List supported diagram types and themes
 
@@ -334,7 +538,9 @@ curl $BASE/api/v1/diagram-types
     { "id": "xychart" },
     { "id": "block" },
     { "id": "radar" },
-    { "id": "treemap" }
+    { "id": "treemap" },
+    { "id": "ishikawa" },
+    { "id": "venn" }
   ],
   "themes": ["default", "dark", "forest", "neutral", "base"]
 }
@@ -758,8 +964,28 @@ The optional `config` object is accepted by `/render`, `/parse`, `/batch`, and `
 **Flowchart** (`flowchart`):
 
 ```json
-{ "flowchart": { "curve": "basis", "htmlLabels": true, "nodeSpacing": 50, "rankSpacing": 50 } }
+{ "flowchart": { "curve": "basis", "nodeSpacing": 50, "rankSpacing": 50 } }
 ```
+
+### `htmlLabels`
+
+The server defaults to root-level `"htmlLabels": false` (SVG `<text>` labels —
+JSDOM does not fully support `<foreignObject>`). To override, set it at the
+**root** of `config`, not nested under `flowchart`:
+
+```json
+{ "htmlLabels": true, "flowchart": { "curve": "basis" } }
+```
+
+```json
+{ "flowchart": { "htmlLabels": true } }
+```
+
+The second form is **silently ignored**. Mermaid's own config precedence is
+`config.htmlLabels ?? config.flowchart?.htmlLabels ?? true` — this server
+always sends an explicit root-level `htmlLabels` (`false` unless you override
+it), so a nested `flowchart.htmlLabels` value is never consulted regardless of
+what you set it to.
 
 **Sequence** (`sequence`):
 
@@ -775,7 +1001,7 @@ The optional `config` object is accepted by `/render`, `/parse`, `/batch`, and `
 
 ### Blocked keys
 
-These keys are silently stripped for security: `securityLevel`, `secure`, `maxTextSize`, `logLevel`, `startOnLoad`.
+These keys are stripped for security: `securityLevel`, `secure`, `maxTextSize`, `logLevel`, `startOnLoad`. Not silently — if your request's `config` included any of them, the response carries a warning naming which ones (see [Line breaks in labels](#line-breaks-in-labels) for the warning delivery mechanism, shared with the `\n` normalization).
 
 ---
 
@@ -802,23 +1028,44 @@ Batch errors include an additional `statusCode` field in each error object.
 
 Extract validation errors are plain strings (just the message).
 
-| Code                   | HTTP | When                                                                       |
-| ---------------------- | ---- | -------------------------------------------------------------------------- |
-| `PARSE_ERROR`          | 422  | Syntax error. `details` may include `line`, `column`, `token`, `expected`. |
-| `UNKNOWN_DIAGRAM_TYPE` | 422  | Text doesn't match any diagram syntax.                                     |
-| `NOT_FOUND`            | 404  | Job ID doesn't exist.                                                      |
-| `INTERNAL_ERROR`       | 500  | Unexpected server error.                                                   |
+| Code                   | HTTP | When                                                                                                                                                                                 |
+| ---------------------- | ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `PARSE_ERROR`          | 422  | Syntax error. `details` may include `line`, `column`, `token`, `expected`.                                                                                                           |
+| `UNKNOWN_DIAGRAM_TYPE` | 422  | Text doesn't match any diagram syntax.                                                                                                                                               |
+| `RENDER_ERROR`         | 422  | Diagram parses fine but its label content can't be laid out (e.g. a wrapping markdown list). Not caught by `/parse` — see [Validate Before Rendering](#2-validate-before-rendering). |
+| `NOT_FOUND`            | 404  | Job ID doesn't exist.                                                                                                                                                                |
+| `PNG_DISABLED`         | 400  | `outputFormat: "png"` requested but `config.png.enabled` is false (`PNG_ENABLED=false`).                                                                                             |
+| `INTERNAL_ERROR`       | 500  | Unexpected server error — a genuine bug, not malformed input.                                                                                                                        |
 
 ---
 
 ## 10. Limits
 
-| Constraint              | Value                   |
-| ----------------------- | ----------------------- |
-| Diagram text            | 50,000 characters       |
-| Markdown text (extract) | 500,000 characters      |
-| Batch items             | 50 per request          |
-| Output formats          | SVG only (`png: false`) |
+| Constraint              | Value                                                         |
+| ----------------------- | ------------------------------------------------------------- |
+| Diagram text            | 50,000 characters                                             |
+| Markdown text (extract) | 500,000 characters                                            |
+| Batch items             | 50 per request                                                |
+| Output formats          | SVG, PNG (gated by `config.png.enabled` / `capabilities.png`) |
+
+---
+
+## Known Limitations
+
+- **Geometry accuracy.** As of 2026-08-04, the `viewBox` on every diagram type
+  bounds its own laid-out content exactly (no clipping, no wasted space from
+  empty edge labels). It is not pixel-equivalent to a real browser, though:
+  text width uses a fixed `CHAR_WIDTH` approximation rather than real font
+  metrics, so layouts run roughly 0.5-0.64x a browser's width for the same
+  content. Node/edge positions themselves are correct — only the reported
+  size of text is approximate.
+- **`/parse` is syntax-only** — see [Validate Before Rendering](#2-validate-before-rendering).
+  It cannot guarantee `/render` will succeed for the same diagram.
+- **`htmlLabels` override** — must be set at the root of `config`, not nested
+  under `flowchart`. See [Configuration Reference](#8-configuration-reference).
+- **`mindmap` is currently broken** for an unrelated reason (`Cannot read
+properties of undefined (reading 'h')`, HTTP 500). Tracked separately from
+  the above; not a label-content or geometry issue.
 
 ---
 

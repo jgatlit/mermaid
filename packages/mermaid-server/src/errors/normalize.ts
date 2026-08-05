@@ -26,6 +26,16 @@ function isDetailedError(err: unknown): err is DetailedError {
   return typeof err === 'object' && err !== null && 'hash' in err;
 }
 
+// Render-time throws caused by unsupported label *content*, not diagram syntax —
+// mermaid's parser accepts these diagrams, so the failure only surfaces once
+// layout runs (which is also why /api/v1/parse can't catch them; see REFERENCE.md).
+// Add new substrings here as more of these are characterised.
+const KNOWN_RENDER_INPUT_ERRORS = [
+  // splitLineToFitWidth (mermaid rendering-util/splitText.ts): thrown when a
+  // markdown list expands into embedded newlines in a label wide enough to wrap.
+  'does not support newlines',
+];
+
 export function normalizeError(err: unknown): ApiError {
   // UnknownDiagramError
   if (err instanceof Error && err.name === 'UnknownDiagramError') {
@@ -58,6 +68,13 @@ export function normalizeError(err: unknown): ApiError {
     if (msg.includes('parse') || msg.includes('expecting') || msg.includes('unexpected')) {
       return {
         code: 'PARSE_ERROR',
+        message: err.message,
+        statusCode: 422,
+      };
+    }
+    if (KNOWN_RENDER_INPUT_ERRORS.some((pattern) => msg.includes(pattern))) {
+      return {
+        code: 'RENDER_ERROR',
         message: err.message,
         statusCode: 422,
       };
