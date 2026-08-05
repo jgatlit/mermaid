@@ -490,7 +490,7 @@ curl $BASE/api/v1/health
 {
   "status": "ok",
   "version": "0.1.0",
-  "mermaidVersion": "11.12.2",
+  "mermaidVersion": "11.16.0",
   "uptime": 641,
   "capabilities": {
     "svg": true,
@@ -500,8 +500,27 @@ curl $BASE/api/v1/health
 }
 ```
 
-`capabilities.png` mirrors `config.png.enabled` (env `PNG_ENABLED`, default `true`); check
-it before requesting `outputFormat: "png"` on [`/api/v1/render`](#1-render-a-diagram).
+`mermaidVersion` is resolved from the installed `mermaid` package at request time, not a
+hardcoded value — trust it. `capabilities.png` mirrors `config.png.enabled` (env
+`PNG_ENABLED`, default `true`); check it before requesting `outputFormat: "png"` on
+[`/api/v1/render`](#1-render-a-diagram).
+
+**`/health` performs a real render, not just a liveness ping.** Every call renders a
+trivial `flowchart TD` diagram end-to-end. If that throws — e.g. a broken dependency, a
+missing module chunk — the endpoint returns **HTTP 503** with `status: "degraded"` and an
+`error` field, instead of a false-positive `200 ok` while every real render is broken.
+This service's failure mode has twice been "the process is alive but rendering silently
+fails" — a health check that can't detect that is worse than no health check:
+
+```json
+{
+  "status": "degraded",
+  "version": "0.1.0",
+  "mermaidVersion": "11.16.0",
+  "uptime": 12,
+  "error": "Cannot find module '.../dist/chunks/mermaid.core/dagre-XXXXXXXX.mjs'"
+}
+```
 
 ### List supported diagram types and themes
 
