@@ -1100,10 +1100,11 @@ properties of undefined (reading 'h')`, HTTP 500). Tracked separately from
   _before_ settling while another render is active, it briefly shares that
   render's live `document`/`window`, since both are the same process-global
   values. This is a narrow, low-probability window (requires a render to
-  both exceed 15s and later actually resolve rather than hang forever, at
-  the same moment another render is in flight); closing it fully would need
-  per-render environment isolation (e.g. a `vm` context or worker per
-  render), which is a larger change tracked separately, not done here.
+  exceed 15s and its suspended coroutine to later resume execution at all —
+  not necessarily to completion — at the same moment another render is in
+  flight); closing it fully would need per-render environment isolation
+  (e.g. a `vm` context or worker per render), which is a larger change
+  tracked separately, not done here.
 
 ---
 
