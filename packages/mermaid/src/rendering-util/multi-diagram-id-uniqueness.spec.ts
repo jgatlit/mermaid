@@ -98,12 +98,30 @@ radar-beta
   max 100
   min 0`,
 
+  railroad: `railroad-beta
+    rule = choice(terminal("a"), terminal("b")) ;`,
+
+  railroadEbnf: `railroad-ebnf-beta
+    rule = "a" | "b" ;`,
+
+  railroadAbnf: `railroad-abnf-beta
+    rule = "a" / "b" ;`,
+
+  railroadPeg: `railroad-peg-beta
+    rule <- "a" / "b" ;`,
+
   treemap: `treemap-beta
 "Section 1"
     "Leaf 1.1": 12
     "Leaf 1.2": 8
 "Section 2"
     "Leaf 2.1": 20`,
+
+  treeView: `treeView-beta
+"packages"
+  "mermaid"
+    "src"
+  "parser"`,
 
   ishikawa: `ishikawa-beta
 Root Cause
@@ -153,6 +171,42 @@ union A, B`,
     service api(cloud)[API]
     service db(database)[DB]
     api:R -- L:db`,
+
+  wardley: `wardley-beta
+    title Kettle Evolution Pipeline
+    size [1100, 800]
+
+    component Kettle [0.57, 0.45]
+    component Power [0.10, 0.70]
+
+    Kettle -> Power
+
+    pipeline Kettle {
+      component Campfire Kettle [0.35] label [-60, 35]
+      component Electric Kettle [0.53] label [-60, 35]
+      component Smart Kettle [0.72] label [-30, 35]
+    }
+
+    Campfire Kettle -> Kettle
+    Electric Kettle -> Kettle
+    Smart Kettle -> Kettle`,
+
+  cynefin: `cynefin-beta
+    title Incident Response
+    complex
+      "Investigate root cause"
+    complicated
+      "Analyze metrics"
+    clear
+      "Restart service"
+    chaotic
+      "Page on-call"`,
+
+  eventmodeling: `eventmodeling
+    tf 01 evt Start
+    tf 02 evt End
+    rf 03 readmodel ReadModel01 ->> 01 ->> 02 { a: true }
+    rf 04 rmo ReadModel02 ->> 01 ->> 02`,
 };
 
 async function renderTwoAndCheckIds(
@@ -227,6 +281,7 @@ describe('Multi-diagram ID uniqueness', () => {
     'state', // legacy alias, covered by stateDiagram
     'flowchart-elk', // ELK layout variant, same renderer as flowchart-v2
     'mindmap', // uses unified pipeline (IDs are prefixed), but cytoscape crashes in JSDOM
+    'swimlane', // reuses the flowchart renderer (createFlowDiagram); IDs covered by flowchart-v2
   ]);
 
   it('"journey" — task line IDs are scoped with the diagram ID', async () => {

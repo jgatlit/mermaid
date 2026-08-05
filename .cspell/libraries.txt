@@ -42,11 +42,13 @@ jsonschema
 katex
 khroma
 langium
+libavoid
 mathml
 matplotlib
 mdbook
 Mermerd
 mkdocs
+monocart
 napi
 Nextra
 nodenext
@@ -71,6 +73,8 @@ sphinxcontrib
 ssim
 stylis
 Swimm
+Tachi
+termaid
 tsbuildinfo
 tseslint
 Tuleap
@@ -80,4 +84,5 @@ unplugin
 unstub
 vite
 vitest
+webtoolz
 Zune

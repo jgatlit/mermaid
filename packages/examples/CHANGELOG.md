@@ -1,5 +1,17 @@
 # @mermaid-js/examples
 
+## 1.3.0
+
+### Minor Changes
+
+- [#7915](https://github.com/mermaid-js/mermaid/pull/7915) [`f707c3d`](https://github.com/mermaid-js/mermaid/commit/f707c3daa78811370ef3df065985bab4dc0ac6c9) Thanks [@sidharthv96](https://github.com/sidharthv96)! - feat(examples): Add relatable, real-world examples for every diagram type, showcasing each diagram's strengths
+
+## 1.2.0
+
+### Minor Changes
+
+- [#7526](https://github.com/mermaid-js/mermaid/pull/7526) [`efe218a`](https://github.com/mermaid-js/mermaid/commit/efe218a47fb5a4c2bd5489b48ce69213b141e519) Thanks [@ashishjain0512](https://github.com/ashishjain0512)! - add new TreeView diagram
+
 ## 1.1.0
 
 ### Minor Changes
