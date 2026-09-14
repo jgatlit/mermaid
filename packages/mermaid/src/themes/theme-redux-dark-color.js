@@ -313,10 +313,11 @@ class Theme {
       this.quadrant3TextFill || adjust(this.primaryTextColor, { r: -10, g: -10, b: -10 });
     this.quadrant4TextFill =
       this.quadrant4TextFill || adjust(this.primaryTextColor, { r: -15, g: -15, b: -15 });
-    this.quadrantPointFill =
-      this.quadrantPointFill || isDark(this.quadrant1Fill)
-        ? lighten(this.quadrant1Fill)
-        : darken(this.quadrant1Fill);
+    this.quadrantPointFill = this.quadrantPointFill
+      ? this.quadrantPointFill
+      : isDark(this.quadrant1Fill)
+        ? lighten(this.quadrant1Fill, 10)
+        : darken(this.quadrant1Fill, 10);
     this.quadrantPointTextFill = this.quadrantPointTextFill || this.primaryTextColor;
     this.quadrantXAxisTextFill = this.quadrantXAxisTextFill || this.primaryTextColor;
     this.quadrantYAxisTextFill = this.quadrantYAxisTextFill || this.primaryTextColor;
