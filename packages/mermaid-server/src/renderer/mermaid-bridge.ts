@@ -223,6 +223,9 @@ export class MermaidBridge {
     };
   }
 
+  /** Layout names actually registered — empty means dagre only. Surfaced on /health. */
+  registeredLayouts: string[] = [];
+
   async initialize(): Promise<void> {
     if (this.initialized) {
       return;
@@ -231,6 +234,37 @@ export class MermaidBridge {
     await this.queue.run(() =>
       withEnvironment(async () => {
         this.mermaidModule = await import('mermaid');
+
+        // Register the layout engines BEFORE initialize(). Without this, a request
+        // carrying `layout: elk` is accepted, silently falls back to dagre, and
+        // returns a 200 — the caller has no way to tell the layout never ran.
+        // Registration is best-effort: a diagram that asks for an unavailable layout
+        // should degrade to dagre, not take the whole server down at boot.
+        try {
+          // Both packages default-export their loader array/object — NOT a named
+          // `layouts` export. Normalise, because getting this wrong fails silently
+          // into dagre rather than loudly.
+          const [elk, tidy] = await Promise.all([
+            import('@mermaid-js/layout-elk'),
+            import('@mermaid-js/layout-tidy-tree').catch(() => null),
+          ]);
+          const toList = (m: unknown): unknown[] => {
+            const v = (m as { default?: unknown })?.default ?? m;
+            return Array.isArray(v) ? v : v ? [v] : [];
+          };
+          const loaders = [...toList(elk), ...toList(tidy)] as Parameters<
+            typeof this.mermaidModule.default.registerLayoutLoaders
+          >[0];
+          this.mermaidModule.default.registerLayoutLoaders(loaders);
+          this.registeredLayouts = loaders.map((l: { name: string }) => l.name);
+        } catch (error) {
+          this.registeredLayouts = [];
+          // Boot-time diagnostic: this is the only signal that the server has gone
+          // silently dagre-only, and the Fastify logger does not exist yet here.
+          // eslint-disable-next-line no-console
+          console.warn('[mermaid-server] layout loader registration failed:', error);
+        }
+
         this.mermaidModule.default.initialize(this.defaultConfig);
         this.initialized = true;
       })

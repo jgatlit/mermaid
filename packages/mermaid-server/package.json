@@ -12,10 +12,12 @@
     "test:watch": "vitest --watch"
   },
   "dependencies": {
-    "@mermaid-js/parser": "workspace:*",
     "@fastify/cors": "^11.0.0",
     "@fastify/swagger": "^9.6.0",
     "@fastify/swagger-ui": "^5.2.2",
+    "@mermaid-js/layout-elk": "workspace:*",
+    "@mermaid-js/layout-tidy-tree": "workspace:*",
+    "@mermaid-js/parser": "workspace:*",
     "@resvg/resvg-js": "^2.6.2",
     "fastify": "^5.3.3",
     "jsdom": "^26.1.0",

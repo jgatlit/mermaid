@@ -525,6 +525,12 @@ importers:
       '@fastify/swagger-ui':
         specifier: ^5.2.2
         version: 5.2.6
+      '@mermaid-js/layout-elk':
+        specifier: workspace:*
+        version: link:../mermaid-layout-elk
+      '@mermaid-js/layout-tidy-tree':
+        specifier: workspace:*
+        version: link:../mermaid-layout-tidy-tree
       '@mermaid-js/parser':
         specifier: workspace:*
         version: link:../parser
