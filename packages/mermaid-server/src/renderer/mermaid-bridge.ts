@@ -3,6 +3,7 @@ import { parse as parseLangiumAst } from '@mermaid-js/parser';
 import { createRequire } from 'node:module';
 import { readFileSync } from 'node:fs';
 import { withEnvironment } from './environment.js';
+import { BrowserRenderer } from './browser-renderer.js';
 import { RenderQueue } from './queue.js';
 
 export interface ParseResult {
@@ -225,6 +226,16 @@ export class MermaidBridge {
     };
   }
 
+  /**
+   * Real-browser renderer. `render` measures; `parse` and `detect` do not, so only
+   * render is routed here. Set MERMAID_BACKEND=jsdom to fall back at runtime — the
+   * rollback for this backend is an env var and a restart, not a rebuild.
+   */
+  private browserRenderer: BrowserRenderer | null = null;
+
+  /** Which backend actually served the last render — surfaced on /health. */
+  renderBackend: 'browser' | 'jsdom' = 'jsdom';
+
   /** Icon pack prefixes actually registered — empty means icons silently vanish. */
   registeredIconPacks: string[] = [];
 
@@ -306,6 +317,21 @@ export class MermaidBridge {
         this.initialized = true;
       })
     );
+
+    // Warm the browser at boot, OUTSIDE the render queue. Chromium launch plus the
+    // mermaid module boot costs several seconds; paying that inside the first render
+    // burns the queue timeout and silently demotes the very first request to jsdom.
+    if (process.env.MERMAID_BACKEND !== 'jsdom') {
+      try {
+        this.browserRenderer ??= new BrowserRenderer();
+        await this.browserRenderer.start();
+        this.renderBackend = 'browser';
+      } catch (error) {
+        // eslint-disable-next-line no-console
+        console.warn('[mermaid-server] browser backend unavailable, using jsdom:', error);
+        this.browserRenderer = null;
+      }
+    }
   }
 
   private getMermaid() {
@@ -372,6 +398,57 @@ export class MermaidBridge {
   }
 
   async render(text: string, config?: MermaidConfig): Promise<RenderResult> {
+    if (process.env.MERMAID_BACKEND !== 'jsdom') {
+      try {
+        return await this.renderInBrowser(text, config);
+      } catch (error) {
+        // Degrade rather than fail: a browser that will not start must not take
+        // rendering down altogether, it must hand back to the old path and say so.
+        this.renderBackend = 'jsdom';
+        // eslint-disable-next-line no-console
+        console.warn('[mermaid-server] browser render failed, falling back to jsdom:', error);
+      }
+    }
+    return this.renderJsdom(text, config);
+  }
+
+  /**
+   * Browser path. Warning computation is deliberately identical to the jsdom path -
+   * detectType and label normalisation do not measure anything, so they stay in
+   * process and the two backends cannot drift in what they report.
+   */
+  private async renderInBrowser(text: string, config?: MermaidConfig): Promise<RenderResult> {
+    this.browserRenderer ??= new BrowserRenderer();
+    const renderer = this.browserRenderer;
+    const warnings: string[] = [];
+    let strippedKeys: string[] = [];
+    let effectiveConfig: MermaidConfig = this.defaultConfig;
+    if (config) {
+      const sanitized = sanitizeConfig(config);
+      strippedKeys = sanitized.strippedKeys;
+      effectiveConfig = { ...this.defaultConfig, ...sanitized.config };
+    }
+    const detected = await this.detect(text);
+    const normalized = normalizeFlowchartLabelBreaks(text, detected);
+    if (normalized.changed) {
+      warnings.push(LITERAL_NEWLINE_WARNING);
+    }
+    warnings.push(...strippedConfigWarnings(strippedKeys));
+    if (effectiveConfig.htmlLabels) {
+      warnings.push(HTML_LABELS_WARNING);
+    }
+    const out = await this.queue.run(() =>
+      renderer.render(nextRenderId(), normalized.text, effectiveConfig)
+    );
+    this.renderBackend = 'browser';
+    return {
+      svg: out.svg,
+      diagramType: out.diagramType ?? detected,
+      ...(warnings.length > 0 ? { warnings } : {}),
+    };
+  }
+
+  private async renderJsdom(text: string, config?: MermaidConfig): Promise<RenderResult> {
     return this.queue.run(() =>
       withEnvironment(async () => {
         const mermaid = this.getMermaid();
