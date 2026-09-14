@@ -544,6 +544,9 @@ importers:
       '@resvg/resvg-js':
         specifier: ^2.6.2
         version: 2.6.2
+      canvas:
+        specifier: ^3.2.3
+        version: 3.2.3
       fastify:
         specifier: ^5.3.3
         version: 5.8.5

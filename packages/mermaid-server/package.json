@@ -23,6 +23,7 @@
     "@mermaid-js/layout-tidy-tree": "workspace:*",
     "@mermaid-js/parser": "workspace:*",
     "@resvg/resvg-js": "^2.6.2",
+    "canvas": "^3.2.3",
     "fastify": "^5.3.3",
     "jsdom": "^26.1.0",
     "mermaid": "workspace:*"

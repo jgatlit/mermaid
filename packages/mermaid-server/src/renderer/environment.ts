@@ -1,3 +1,5 @@
+import { createRequire } from 'node:module';
+const require = createRequire(import.meta.url);
 import { JSDOM } from 'jsdom';
 
 const BASE_HTML = `
@@ -268,6 +270,34 @@ export async function withEnvironment<T>(fn: () => Promise<T>): Promise<T> {
     const dom = new JSDOM(BASE_HTML, {
       resources: 'usable',
       beforeParse(window) {
+        // A real 2d context, wired explicitly. jsdom only picks up node-canvas when it
+        // can resolve `canvas` from its own directory, which pnpm's strict isolation
+        // prevents; without this, anything that measures through a canvas fails with
+        // `Could not create canvas of type 2d`. Upstream 11.17 moved architecture-beta
+        // onto that path, so the type regressed on this backend.
+        // Best-effort: if node-canvas is unavailable the renderer degrades exactly as
+        // it did before, rather than failing to boot.
+        try {
+          // eslint-disable-next-line @typescript-eslint/no-var-requires, unicorn/prefer-module
+          const nodeCanvas = require('canvas');
+          setProperty(
+            window.HTMLCanvasElement.prototype,
+            'getContext',
+            function (this: HTMLCanvasElement, kind: string) {
+              if (kind !== '2d') {
+                return null;
+              }
+              const surface = nodeCanvas.createCanvas(
+                Number(this.getAttribute('width')) || 300,
+                Number(this.getAttribute('height')) || 150
+              );
+              return surface.getContext('2d');
+            }
+          );
+        } catch {
+          // no canvas available — leave jsdom's stub in place
+        }
+
         setProperty(window.Element.prototype, 'getBBox', function (this: Element) {
           // Check if this is a leaf text element or a container group
           const tagName = this.tagName?.toLowerCase() ?? '';
