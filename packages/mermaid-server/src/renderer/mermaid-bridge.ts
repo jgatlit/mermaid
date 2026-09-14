@@ -1,5 +1,7 @@
 import type { MermaidConfig } from 'mermaid';
 import { parse as parseLangiumAst } from '@mermaid-js/parser';
+import { createRequire } from 'node:module';
+import { readFileSync } from 'node:fs';
 import { withEnvironment } from './environment.js';
 import { RenderQueue } from './queue.js';
 
@@ -223,6 +225,9 @@ export class MermaidBridge {
     };
   }
 
+  /** Icon pack prefixes actually registered — empty means icons silently vanish. */
+  registeredIconPacks: string[] = [];
+
   /** Layout names actually registered — empty means dagre only. Surfaced on /health. */
   registeredLayouts: string[] = [];
 
@@ -263,6 +268,38 @@ export class MermaidBridge {
           // silently dagre-only, and the Fastify logger does not exist yet here.
           // eslint-disable-next-line no-console
           console.warn('[mermaid-server] layout loader registration failed:', error);
+        }
+
+        // Icon packs. Registered as ICONIFY packs (real <path> geometry inlined into
+        // the SVG) rather than the FontAwesome webfont that mermaid-cli injects as CSS:
+        // this server's output is a standalone SVG usually consumed via <img>, where an
+        // external webfont never loads and glyphs come out blank — the same failure mode
+        // as <foreignObject> labels. Vector survives <img>, PDF and email.
+        //
+        // Loaders are lazy: mermaid calls them only when a diagram actually uses that
+        // prefix, and mdi's icons.json alone is several MB. Read from node_modules, never
+        // fetched at boot — a render server must not need a CDN to draw a box.
+        try {
+          const req = createRequire(import.meta.url);
+          const pack = (name: string, specifier: string) => ({
+            name,
+            // Sync read wrapped in a resolved promise: the read is lazy (only when a
+            // diagram uses the prefix) and the packs are local files, so there is nothing
+            // to await — but mermaid expects a thenable.
+            loader: () => Promise.resolve(JSON.parse(readFileSync(req.resolve(specifier), 'utf8'))),
+          });
+          this.mermaidModule.default.registerIconPacks([
+            pack('logos', '@iconify-json/logos/icons.json'),
+            pack('mdi', '@iconify-json/mdi/icons.json'),
+            pack('fa6-solid', '@iconify-json/fa6-solid/icons.json'),
+            pack('fa6-brands', '@iconify-json/fa6-brands/icons.json'),
+          ]);
+          this.registeredIconPacks = ['logos', 'mdi', 'fa6-solid', 'fa6-brands'];
+        } catch (error) {
+          this.registeredIconPacks = [];
+          // Boot-time diagnostic: an unregistered pack means icons vanish silently.
+          // eslint-disable-next-line no-console
+          console.warn('[mermaid-server] icon pack registration failed:', error);
         }
 
         this.mermaidModule.default.initialize(this.defaultConfig);
