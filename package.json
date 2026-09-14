@@ -21,7 +21,7 @@
     "copy:editor": "cpy \"packages/mermaid-local-editor/static/**/*\" packages/mermaid/dist/mermaid-local-editor",
     "serve:dist": "sirv packages/mermaid/dist/mermaid-local-editor --port 8081 --dev --no-clear",
     "build": "pnpm build:esbuild && pnpm build:types",
-    "build:esbuild": "pnpm run -r clean && tsx .esbuild/build.ts",
+    "build:esbuild": "node scripts/check-node-version.mjs && pnpm run -r clean && pnpm run codegen && tsx .esbuild/build.ts",
     "build:mermaid": "pnpm build:esbuild --mermaid",
     "build:coverage": "MERMAID_COVERAGE=true pnpm build:esbuild",
     "build:mermaid:full": "pnpm clean && pnpm build:mermaid && pnpm copy:editor && pnpm copy:mermaid && pnpm copy:dompurify && pnpm serve:dist",
@@ -65,7 +65,8 @@
     "test:coverage": "vitest --coverage",
     "test:check:tsc": "tsx scripts/tsc-check.ts",
     "prepare": "husky && pnpm build",
-    "pre-commit": "lint-staged"
+    "pre-commit": "lint-staged",
+    "codegen": "pnpm --filter @mermaid-js/parser langium:generate"
   },
   "repository": {
     "type": "git",
@@ -190,5 +191,8 @@
       "sharp",
       "vue-demi"
     ]
+  },
+  "engines": {
+    "node": ">=22"
   }
 }
